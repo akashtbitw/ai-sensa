@@ -132,6 +132,52 @@ router.put("/caregivers", async (req, res) => {
   }
 });
 
+// Update user medications
+router.put("/medications", async (req, res) => {
+  try {
+    const { userId, medications } = req.body;
+
+    // Basic validation
+    if (!userId || !Array.isArray(medications)) {
+      return res.status(400).json({ message: "Invalid request data" });
+    }
+
+    // Validate each medication
+    for (const med of medications) {
+      if (
+        !med.name ||
+        !med.dosage ||
+        !med.frequency ||
+        !med.timing ||
+        med.timing.length === 0
+      ) {
+        return res.status(400).json({
+          message:
+            "Each medication must have name, dosage, frequency, and at least one timing",
+        });
+      }
+    }
+
+    // Find the user
+    const user = await User.findOne({ userId });
+    if (!user) {
+      return res.status(404).json({ message: "User not found" });
+    }
+
+    // Update medications
+    user.medications = medications;
+    await user.save();
+
+    return res.status(200).json({
+      message: "Medications updated successfully",
+      medications: user.medications,
+    });
+  } catch (error) {
+    console.error("Error updating medications:", error);
+    return res.status(500).json({ message: "Failed to update medications" });
+  }
+});
+
 // Get user profile
 router.get("/profile/:userId", async (req, res) => {
   try {

@@ -26,8 +26,27 @@ const MedicationSchema = new mongoose.Schema(
       required: true,
     },
     timing: {
+      type: [String],
+      required: true,
+      validate: {
+        validator: function (v) {
+          return v && v.length > 0;
+        },
+        message: "At least one timing is required",
+      },
+    },
+    dosage: {
       type: String,
       required: true,
+    },
+    frequency: {
+      type: String,
+      required: true,
+    },
+    beforeAfterMeal: {
+      type: String,
+      enum: ["Before meal", "After meal", "With meal", "Empty stomach", ""],
+      default: "",
     },
   },
   { _id: true }

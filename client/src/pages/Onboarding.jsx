@@ -25,7 +25,10 @@ const Onboarding = () => {
   const [newHealthCondition, setNewHealthCondition] = useState("");
   const [newMedication, setNewMedication] = useState({
     name: "",
-    timing: "",
+    timing: [], // Changed to array
+    dosage: "",
+    frequency: "",
+    beforeAfterMeal: "", // New field
   });
 
   const [isSubmitting, setIsSubmitting] = useState(false);
@@ -73,7 +76,12 @@ const Onboarding = () => {
 
   // Handle adding medication
   const addMedication = () => {
-    if (newMedication.name.trim() && newMedication.timing.trim()) {
+    if (
+      newMedication.name.trim() &&
+      newMedication.timing.length > 0 &&
+      newMedication.dosage.trim() &&
+      newMedication.frequency.trim()
+    ) {
       const medicationExists = formData.medications.some(
         (med) =>
           med.name.toLowerCase() === newMedication.name.trim().toLowerCase()
@@ -86,11 +94,20 @@ const Onboarding = () => {
             ...formData.medications,
             {
               name: newMedication.name.trim(),
-              timing: newMedication.timing.trim(),
+              timing: [...newMedication.timing], // Store as array
+              dosage: newMedication.dosage.trim(),
+              frequency: newMedication.frequency.trim(),
+              beforeAfterMeal: newMedication.beforeAfterMeal,
             },
           ],
         });
-        setNewMedication({ name: "", timing: "" });
+        setNewMedication({
+          name: "",
+          timing: [],
+          dosage: "",
+          frequency: "",
+          beforeAfterMeal: "",
+        });
       }
     }
   };
@@ -99,6 +116,22 @@ const Onboarding = () => {
   const removeMedication = (index) => {
     const updated = formData.medications.filter((_, i) => i !== index);
     setFormData({ ...formData, medications: updated });
+  };
+
+  const addTiming = (time) => {
+    if (time && !newMedication.timing.includes(time)) {
+      setNewMedication({
+        ...newMedication,
+        timing: [...newMedication.timing, time],
+      });
+    }
+  };
+
+  const removeTiming = (timeToRemove) => {
+    setNewMedication({
+      ...newMedication,
+      timing: newMedication.timing.filter((time) => time !== timeToRemove),
+    });
   };
 
   // Handle input changes for caregiver fields
@@ -470,7 +503,7 @@ const Onboarding = () => {
           >
             <h2 className="text-2xl font-semibold mb-6">Health Information</h2>
             <div className="space-y-6">
-              {/* Health Conditions Section */}
+              {/* Health Conditions Section - Keep existing code */}
               <div>
                 <label className="block text-gray-700 text-lg mb-2">
                   Health Conditions (if any)
@@ -527,15 +560,16 @@ const Onboarding = () => {
                 )}
               </div>
 
-              {/* Medications Section */}
+              {/* Updated Medications Section */}
               <div>
                 <label className="block text-gray-700 text-lg mb-2">
                   Current Medications (if any)
                 </label>
 
                 {/* Input for new medication */}
-                <div className="space-y-2 mb-3">
-                  <div className="flex gap-2">
+                <div className="space-y-3 mb-4 p-4 border border-gray-200 rounded-lg bg-gray-50">
+                  {/* Medication Name */}
+                  <div>
                     <input
                       type="text"
                       value={newMedication.name}
@@ -545,62 +579,175 @@ const Onboarding = () => {
                           name: e.target.value,
                         })
                       }
-                      className="flex-1 p-3 text-lg border border-gray-300 rounded-lg focus:border-blue-500 focus:ring focus:ring-blue-200"
+                      className="w-full p-3 text-lg border border-gray-300 rounded-lg focus:border-blue-500 focus:ring focus:ring-blue-200"
                       placeholder="Medication name"
                     />
+                  </div>
+
+                  {/* Timing Section */}
+                  <div>
+                    <label className="block text-gray-600 text-sm mb-1">
+                      Timing
+                    </label>
+                    <div className="flex gap-2 mb-2">
+                      <input
+                        type="time"
+                        id="timeInput"
+                        className="flex-1 p-2 text-sm border border-gray-300 rounded-lg focus:border-blue-500 focus:ring focus:ring-blue-200"
+                      />
+                      <button
+                        type="button"
+                        onClick={() => {
+                          const timeInput =
+                            document.getElementById("timeInput");
+                          if (timeInput.value) {
+                            addTiming(timeInput.value);
+                            timeInput.value = "";
+                          }
+                        }}
+                        className="px-3 py-2 bg-blue-500 text-white rounded-lg hover:bg-blue-600 text-sm"
+                      >
+                        Add Time
+                      </button>
+                    </div>
+
+                    {/* Display selected timings */}
+                    {newMedication.timing.length > 0 && (
+                      <div className="flex flex-wrap gap-1 mb-2">
+                        {newMedication.timing.map((time, index) => (
+                          <div
+                            key={index}
+                            className="flex items-center bg-blue-100 text-blue-800 px-2 py-1 rounded text-xs"
+                          >
+                            <span>{time}</span>
+                            <button
+                              type="button"
+                              onClick={() => removeTiming(time)}
+                              className="ml-1 text-blue-600 hover:text-blue-800"
+                            >
+                              ×
+                            </button>
+                          </div>
+                        ))}
+                      </div>
+                    )}
+                  </div>
+
+                  {/* Dosage and Frequency */}
+                  <div className="flex gap-2">
                     <input
-                      type="time"
-                      value={newMedication.timing}
+                      type="text"
+                      value={newMedication.dosage}
                       onChange={(e) =>
                         setNewMedication({
                           ...newMedication,
-                          timing: e.target.value,
+                          dosage: e.target.value,
                         })
                       }
                       className="flex-1 p-3 text-lg border border-gray-300 rounded-lg focus:border-blue-500 focus:ring focus:ring-blue-200"
-                      placeholder=""
+                      placeholder="Dosage (e.g., 10mg)"
                     />
-                    <button
-                      type="button"
-                      onClick={addMedication}
-                      disabled={
-                        !newMedication.name.trim() ||
-                        !newMedication.timing.trim()
+                    <input
+                      type="text"
+                      value={newMedication.frequency}
+                      onChange={(e) =>
+                        setNewMedication({
+                          ...newMedication,
+                          frequency: e.target.value,
+                        })
                       }
-                      className={`px-4 py-2 rounded-lg font-medium ${
-                        newMedication.name.trim() && newMedication.timing.trim()
-                          ? "bg-green-500 text-white hover:bg-green-600"
-                          : "bg-gray-300 text-gray-500 cursor-not-allowed"
-                      }`}
-                    >
-                      Add
-                    </button>
+                      className="flex-1 p-3 text-lg border border-gray-300 rounded-lg focus:border-blue-500 focus:ring focus:ring-blue-200"
+                      placeholder="Frequency (e.g., Once daily)"
+                    />
                   </div>
+
+                  {/* Before/After Meal */}
+                  <div>
+                    <label className="block text-gray-600 text-sm mb-1">
+                      Before/After Meal (Optional)
+                    </label>
+                    <select
+                      value={newMedication.beforeAfterMeal}
+                      onChange={(e) =>
+                        setNewMedication({
+                          ...newMedication,
+                          beforeAfterMeal: e.target.value,
+                        })
+                      }
+                      className="w-full p-3 text-lg border border-gray-300 rounded-lg focus:border-blue-500 focus:ring focus:ring-blue-200"
+                    >
+                      <option value="">Select option</option>
+                      <option value="Before meal">Before meal</option>
+                      <option value="After meal">After meal</option>
+                      <option value="With meal">With meal</option>
+                      <option value="Empty stomach">Empty stomach</option>
+                    </select>
+                  </div>
+
+                  {/* Add Medication Button */}
+                  <button
+                    type="button"
+                    onClick={addMedication}
+                    disabled={
+                      !newMedication.name.trim() ||
+                      newMedication.timing.length === 0 ||
+                      !newMedication.dosage.trim() ||
+                      !newMedication.frequency.trim()
+                    }
+                    className={`w-full py-2 rounded-lg font-medium ${
+                      newMedication.name.trim() &&
+                      newMedication.timing.length > 0 &&
+                      newMedication.dosage.trim() &&
+                      newMedication.frequency.trim()
+                        ? "bg-green-500 text-white hover:bg-green-600"
+                        : "bg-gray-300 text-gray-500 cursor-not-allowed"
+                    }`}
+                  >
+                    Add Medication
+                  </button>
                 </div>
 
                 {/* Display added medications */}
                 {formData.medications.length > 0 && (
-                  <div className="space-y-2">
+                  <div className="space-y-3">
                     {formData.medications.map((medication, index) => (
                       <div
                         key={index}
-                        className="flex items-center justify-between bg-green-50 border border-green-200 p-3 rounded-lg"
+                        className="bg-green-50 border border-green-200 p-4 rounded-lg"
                       >
-                        <div>
-                          <span className="font-medium text-green-800">
-                            {medication.name}
-                          </span>
-                          <span className="text-green-600 ml-2">
-                            - {medication.timing}
-                          </span>
+                        <div className="flex items-start justify-between">
+                          <div className="flex-1">
+                            <div className="font-medium text-green-800 text-lg">
+                              {medication.name}
+                            </div>
+                            <div className="text-green-700 text-sm mt-1">
+                              <div>
+                                <strong>Dosage:</strong> {medication.dosage}
+                              </div>
+                              <div>
+                                <strong>Frequency:</strong>{" "}
+                                {medication.frequency}
+                              </div>
+                              <div>
+                                <strong>Timing:</strong>{" "}
+                                {medication.timing.join(", ")}
+                              </div>
+                              {medication.beforeAfterMeal && (
+                                <div>
+                                  <strong>Meal:</strong>{" "}
+                                  {medication.beforeAfterMeal}
+                                </div>
+                              )}
+                            </div>
+                          </div>
+                          <button
+                            type="button"
+                            onClick={() => removeMedication(index)}
+                            className="text-green-600 hover:text-green-800 text-lg ml-2"
+                          >
+                            ×
+                          </button>
                         </div>
-                        <button
-                          type="button"
-                          onClick={() => removeMedication(index)}
-                          className="text-green-600 hover:text-green-800 text-lg"
-                        >
-                          ×
-                        </button>
                       </div>
                     ))}
                   </div>

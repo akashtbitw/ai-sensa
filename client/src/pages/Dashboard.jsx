@@ -17,6 +17,14 @@ import {
   Stethoscope,
   Scale,
   Clock,
+  Pill,
+  RotateCcw,
+  Utensils,
+  Edit3,
+  Trash2,
+  Plus,
+  Save,
+  X,
 } from "lucide-react";
 import { PersonStanding, ExternalLink } from "lucide-react";
 const vitalRangesConfig = {
@@ -51,6 +59,15 @@ const Dashboard = () => {
   const { user } = useUser();
   const navigate = useNavigate();
   const [currentTime, setCurrentTime] = useState(new Date());
+  const [editingMedication, setEditingMedication] = useState(null);
+  const [showAddMedication, setShowAddMedication] = useState(false);
+  const [newMedication, setNewMedication] = useState({
+    name: "",
+    dosage: "",
+    frequency: "",
+    timing: [""],
+    beforeAfterMeal: "",
+  });
   const [notifications] = useState([
     {
       id: 1,
@@ -263,6 +280,171 @@ const Dashboard = () => {
           color: "text-red-600",
           bg: "bg-red-100",
         };
+    }
+  };
+
+  const handleEditMedication = (index) => {
+    setEditingMedication({
+      index,
+      ...userData.medications[index],
+      timing: Array.isArray(userData.medications[index].timing)
+        ? userData.medications[index].timing
+        : [userData.medications[index].timing],
+    });
+  };
+
+  const handleSaveEdit = async () => {
+    try {
+      const updatedMedications = [...userData.medications];
+      updatedMedications[editingMedication.index] = {
+        name: editingMedication.name,
+        dosage: editingMedication.dosage,
+        frequency: editingMedication.frequency,
+        timing: editingMedication.timing.filter((time) => time.trim() !== ""),
+        beforeAfterMeal: editingMedication.beforeAfterMeal,
+      };
+
+      const response = await fetch(`${API_URL}/api/users/medications`, {
+        method: "PUT",
+        headers: {
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({
+          userId: user.id,
+          medications: updatedMedications,
+        }),
+      });
+
+      if (response.ok) {
+        setUserData((prev) => ({
+          ...prev,
+          medications: updatedMedications,
+        }));
+        setEditingMedication(null);
+      }
+    } catch (error) {
+      console.error("Error updating medication:", error);
+    }
+  };
+
+  const handleDeleteMedication = async (index) => {
+    if (window.confirm("Are you sure you want to delete this medication?")) {
+      try {
+        const updatedMedications = userData.medications.filter(
+          (_, i) => i !== index
+        );
+
+        const response = await fetch(`${API_URL}/api/users/medications`, {
+          method: "PUT",
+          headers: {
+            "Content-Type": "application/json",
+          },
+          body: JSON.stringify({
+            userId: user.id,
+            medications: updatedMedications,
+          }),
+        });
+
+        if (response.ok) {
+          setUserData((prev) => ({
+            ...prev,
+            medications: updatedMedications,
+          }));
+        }
+      } catch (error) {
+        console.error("Error deleting medication:", error);
+      }
+    }
+  };
+
+  const handleAddMedication = async () => {
+    if (
+      !newMedication.name ||
+      !newMedication.dosage ||
+      !newMedication.frequency ||
+      !newMedication.timing.some((time) => time.trim() !== "")
+    ) {
+      alert("Please fill in all required fields");
+      return;
+    }
+
+    try {
+      const medicationToAdd = {
+        ...newMedication,
+        timing: newMedication.timing.filter((time) => time.trim() !== ""),
+      };
+
+      const updatedMedications = [...userData.medications, medicationToAdd];
+
+      const response = await fetch(`${API_URL}/api/users/medications`, {
+        method: "PUT",
+        headers: {
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({
+          userId: user.id,
+          medications: updatedMedications,
+        }),
+      });
+
+      if (response.ok) {
+        setUserData((prev) => ({
+          ...prev,
+          medications: updatedMedications,
+        }));
+        setNewMedication({
+          name: "",
+          dosage: "",
+          frequency: "",
+          timing: [""],
+          beforeAfterMeal: "",
+        });
+        setShowAddMedication(false);
+      }
+    } catch (error) {
+      console.error("Error adding medication:", error);
+    }
+  };
+
+  const addTimingField = (isEdit = false) => {
+    if (isEdit) {
+      setEditingMedication((prev) => ({
+        ...prev,
+        timing: [...prev.timing, ""],
+      }));
+    } else {
+      setNewMedication((prev) => ({
+        ...prev,
+        timing: [...prev.timing, ""],
+      }));
+    }
+  };
+
+  const removeTimingField = (index, isEdit = false) => {
+    if (isEdit) {
+      setEditingMedication((prev) => ({
+        ...prev,
+        timing: prev.timing.filter((_, i) => i !== index),
+      }));
+    } else {
+      setNewMedication((prev) => ({
+        ...prev,
+        timing: prev.timing.filter((_, i) => i !== index),
+      }));
+    }
+  };
+
+  const updateTimingField = (index, value, isEdit = false) => {
+    if (isEdit) {
+      setEditingMedication((prev) => ({
+        ...prev,
+        timing: prev.timing.map((time, i) => (i === index ? value : time)),
+      }));
+    } else {
+      setNewMedication((prev) => ({
+        ...prev,
+        timing: prev.timing.map((time, i) => (i === index ? value : time)),
+      }));
     }
   };
 
@@ -618,19 +800,19 @@ const Dashboard = () => {
                     </span>
                   </div>
                 </div>
-                {userData.healthConditions &&
-                  userData.healthConditions.length > 0 && (
-                    <div className="mt-4 p-3 bg-yellow-50 rounded-lg border-l-4 border-yellow-400 flex-shrink-0">
-                      <div className="text-sm text-yellow-800 font-semibold mb-2">
-                        Health Conditions:
-                      </div>
+                <div className="mt-4 p-3 bg-yellow-50 rounded-lg border-l-4 border-yellow-400 flex-shrink-0">
+                  <div className="text-sm text-yellow-800 font-semibold mb-2">
+                    Health Conditions:
+                  </div>
+                  {userData.healthConditions &&
+                    userData.healthConditions.length > 0 && (
                       <div className="text-sm text-yellow-700 leading-relaxed overflow-hidden">
                         <div className="line-clamp-2">
                           {userData.healthConditions.join(", ")}
                         </div>
                       </div>
-                    </div>
-                  )}
+                    )}
+                </div>
               </div>
             </div>
           </div>
@@ -639,7 +821,7 @@ const Dashboard = () => {
         {/* Bottom Grid */}
         <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
           {/* Notifications */}
-          <div className="bg-white rounded-xl shadow-lg p-6">
+          <div className="bg-white rounded-xl shadow-lg p-6 border-l-4 border-orange-500">
             <div className="flex items-center justify-between mb-4">
               <h2 className="text-lg font-semibold text-gray-800 flex items-center">
                 <Bell className="w-5 h-5 mr-2 text-orange-500" />
@@ -680,97 +862,434 @@ const Dashboard = () => {
             </div>
           </div>
 
-          {/* Caregivers */}
-          <div className="bg-white rounded-xl shadow-lg p-6">
-            <h2 className="text-lg font-semibold text-gray-800 mb-4 flex items-center">
-              <Users className="w-5 h-5 mr-2 text-indigo-500" />
-              Your Care Team
-            </h2>
+          {/* Current Medications - Now in the bottom grid */}
 
-            <div className="max-h-64 overflow-y-auto space-y-4">
-              {userData.caregivers.map((caregiver, index) => (
-                <div
-                  key={index}
-                  className="flex items-center justify-between p-3 rounded-lg border border-gray-100 hover:bg-gray-50 transition-colors"
-                >
-                  <div className="flex items-center">
-                    <div className="w-10 h-10 bg-indigo-100 rounded-full flex items-center justify-center mr-3">
-                      <User className="w-5 h-5 text-indigo-600" />
-                    </div>
-                    <div>
-                      <p className="font-medium text-gray-800">
-                        {caregiver.name}
-                      </p>
-                      <div className="flex items-center space-x-4 mt-1">
-                        <div className="flex items-center text-xs text-gray-500">
-                          <Mail className="w-3 h-3 mr-1" />
-                          {caregiver.email}
-                        </div>
-                        {caregiver.phone && (
-                          <div className="flex items-center text-xs text-gray-500">
-                            <Phone className="w-3 h-3 mr-1" />
-                            {caregiver.phone}
-                          </div>
-                        )}
-                      </div>
-                    </div>
-                  </div>
-                </div>
-              ))}
-            </div>
-          </div>
-        </div>
-
-        {/* Normal Vitals Reference */}
-        <div className="mt-6 bg-white rounded-xl shadow-lg p-6">
-          <h2 className="text-lg font-semibold text-gray-800 mb-4 flex items-center">
-            <TrendingUp className="w-5 h-5 mr-2 text-gray-600" />
-            Your Normal Vital Signs Reference
-          </h2>
-
-          <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
-            <div className="text-center p-3 bg-gray-50 rounded-lg">
-              <HeartPulse className="w-5 h-5 text-red-500 mx-auto mb-2" />
-              <div className="text-sm text-gray-600">Normal Heart Rate</div>
-              <div className="font-semibold text-gray-800">
-                {userData.normalHeartRate} BPM
-              </div>
-            </div>
-            <div className="text-center p-3 bg-gray-50 rounded-lg">
-              <Activity className="w-5 h-5 text-green-500 mx-auto mb-2" />
-              <div className="text-sm text-gray-600">Normal Blood Pressure</div>
-              <div className="font-semibold text-gray-800">
-                {userData.normalBP} mmHg
-              </div>
-            </div>
-            <div className="text-center p-3 bg-gray-50 rounded-lg">
-              <Droplets className="w-5 h-5 text-blue-500 mx-auto mb-2" />
-              <div className="text-sm text-gray-600">Normal SpO2</div>
-              <div className="font-semibold text-gray-800">
-                {userData.normalSpO2}%
-              </div>
-            </div>
-            <div className="text-center p-3 bg-gray-50 rounded-lg">
-              <Calendar className="w-5 h-5 text-purple-500 mx-auto mb-2" />
-              <div className="text-sm text-gray-600">Profile Updated</div>
-              <div className="font-semibold text-gray-800">Today</div>
-            </div>
-          </div>
-
-          {userData.medications && userData.medications.length > 0 && (
-            <div className="mt-4 p-4 bg-blue-50 rounded-lg border-l-4 border-blue-400">
-              <h3 className="font-medium text-blue-800 mb-2">
+          <div className="bg-white rounded-xl shadow-lg p-6 border-l-4 border-blue-500 group/container">
+            <div className="flex items-center justify-between mb-4">
+              <h2 className="text-lg font-semibold text-gray-800 flex items-center">
+                <Stethoscope className="w-5 h-5 mr-2 text-blue-500" />
                 Current Medications
-              </h3>
-              <div className="space-y-1">
+              </h2>
+              {userData.medications.length > 0 && (
+                <button
+                  onClick={() => setShowAddMedication(true)}
+                  className="cursor-pointer flex items-center justify-center w-10 h-10 bg-blue-500 text-white rounded-full hover:bg-blue-600 hover:scale-110 transition-all duration-300 ease-in-out shadow-md hover:shadow-lg opacity-0 group-hover/container:opacity-100 transform translate-y-1 group-hover/container:translate-y-0"
+                  title="Add new medication"
+                >
+                  <Plus className="w-5 h-5" />
+                </button>
+              )}
+            </div>
+
+            {userData.medications && userData.medications.length > 0 ? (
+              <div className="max-h-64 overflow-y-auto space-y-3">
                 {userData.medications.map((med, index) => (
-                  <div key={index} className="text-sm text-blue-700">
-                    {med.name} - {med.timing}
+                  <div
+                    key={index}
+                    className="p-3 rounded-lg border-none hover:bg-gray-100 transition-colors group"
+                  >
+                    {editingMedication && editingMedication.index === index ? (
+                      // Edit Mode
+                      <div className="space-y-3">
+                        <div className="flex items-center justify-between">
+                          <input
+                            type="text"
+                            value={editingMedication.name}
+                            onChange={(e) =>
+                              setEditingMedication((prev) => ({
+                                ...prev,
+                                name: e.target.value,
+                              }))
+                            }
+                            className="font-medium text-gray-800 text-sm bg-white border border-gray-300 rounded px-2 py-1 flex-1 mr-2"
+                            placeholder="Medication name"
+                          />
+                          <div className="flex space-x-2">
+                            <button
+                              onClick={handleSaveEdit}
+                              className="cursor-pointer p-1 text-green-600 hover:bg-green-100 rounded"
+                            >
+                              <Save className="w-4 h-4" />
+                            </button>
+                            <button
+                              onClick={() => setEditingMedication(null)}
+                              className="cursor-pointer p-1 text-gray-600 hover:bg-gray-100 rounded"
+                            >
+                              <X className="w-4 h-4" />
+                            </button>
+                          </div>
+                        </div>
+
+                        <div className="ml-10 space-y-2">
+                          <div className="flex flex-wrap gap-2">
+                            <input
+                              type="text"
+                              value={editingMedication.dosage}
+                              onChange={(e) =>
+                                setEditingMedication((prev) => ({
+                                  ...prev,
+                                  dosage: e.target.value,
+                                }))
+                              }
+                              className="px-2 py-1 bg-purple-50 border border-purple-200 rounded text-xs flex-1 min-w-[80px]"
+                              placeholder="Dosage"
+                            />
+                            <input
+                              type="text"
+                              value={editingMedication.frequency}
+                              onChange={(e) =>
+                                setEditingMedication((prev) => ({
+                                  ...prev,
+                                  frequency: e.target.value,
+                                }))
+                              }
+                              className="px-2 py-1 bg-blue-50 border border-blue-200 rounded text-xs flex-1 min-w-[80px]"
+                              placeholder="Frequency"
+                            />
+                            <select
+                              value={editingMedication.beforeAfterMeal}
+                              onChange={(e) =>
+                                setEditingMedication((prev) => ({
+                                  ...prev,
+                                  beforeAfterMeal: e.target.value,
+                                }))
+                              }
+                              className="cursor-pointer px-2 py-1 bg-orange-50 border border-orange-200 rounded text-xs flex-1 min-w-[100px]"
+                            >
+                              <option value="">Select meal timing</option>
+                              <option value="Before meal">Before meal</option>
+                              <option value="After meal">After meal</option>
+                              <option value="With meal">With meal</option>
+                              <option value="Empty stomach">
+                                Empty stomach
+                              </option>
+                            </select>
+                          </div>
+
+                          {/* Timing fields */}
+                          <div className="space-y-1">
+                            <label className="text-xs font-medium text-gray-600">
+                              Timing:
+                            </label>
+                            {editingMedication.timing.map((time, timeIndex) => (
+                              <div
+                                key={timeIndex}
+                                className="flex items-center gap-1"
+                              >
+                                <input
+                                  type="time"
+                                  value={time}
+                                  onChange={(e) =>
+                                    updateTimingField(
+                                      timeIndex,
+                                      e.target.value,
+                                      true
+                                    )
+                                  }
+                                  className="px-2 py-1 bg-green-50 border border-green-200 rounded text-xs"
+                                />
+                                {editingMedication.timing.length > 1 && (
+                                  <button
+                                    onClick={() =>
+                                      removeTimingField(timeIndex, true)
+                                    }
+                                    className="p-1 text-red-500 hover:bg-red-100 rounded"
+                                  >
+                                    <X className="w-3 h-3" />
+                                  </button>
+                                )}
+                              </div>
+                            ))}
+                            <button
+                              onClick={() => addTimingField(true)}
+                              className="cursor-pointer text-xs text-blue-600 hover:text-blue-800"
+                            >
+                              + Add time
+                            </button>
+                          </div>
+                        </div>
+                      </div>
+                    ) : (
+                      // View Mode
+                      <>
+                        <div className="flex items-center justify-between mb-2">
+                          <div className="flex items-center">
+                            <div className="w-8 h-8 bg-red-100 rounded-full flex items-center justify-center mr-2">
+                              <Pill className="w-4 h-4 text-red-600" />
+                            </div>
+                            <div>
+                              <h3 className="font-medium text-gray-800 text-sm">
+                                {med.name}
+                              </h3>
+                            </div>
+                          </div>
+                          <div className="flex space-x-1 opacity-0 group-hover:opacity-100 transition-opacity">
+                            <button
+                              onClick={() => handleEditMedication(index)}
+                              className="cursor-pointer p-1 text-blue-600 hover:bg-blue-100 rounded"
+                              title="Edit medication"
+                            >
+                              <Edit3 className="w-4 h-4" />
+                            </button>
+                            <button
+                              onClick={() => handleDeleteMedication(index)}
+                              className="cursor-pointer p-1 text-red-600 hover:bg-red-100 rounded"
+                              title="Delete medication"
+                            >
+                              <Trash2 className="w-4 h-4" />
+                            </button>
+                          </div>
+                        </div>
+
+                        <div className="ml-10 flex flex-wrap gap-2">
+                          <div className="flex items-center px-2 py-1 bg-purple-50 rounded text-xs">
+                            <div className="w-1.5 h-1.5 bg-purple-500 rounded-full mr-1.5"></div>
+                            <span className="text-purple-700 font-medium mr-1">
+                              Dosage:
+                            </span>
+                            <span className="text-purple-900 font-semibold">
+                              {med.dosage} Mg
+                            </span>
+                          </div>
+
+                          <div className="flex items-center px-2 py-1 bg-blue-50 rounded text-xs">
+                            <RotateCcw className="w-3 h-3 text-blue-600 mr-1.5" />
+                            <span className="text-blue-700 font-medium mr-1">
+                              Freq:
+                            </span>
+                            <span className="text-blue-900 font-semibold">
+                              {med.frequency}
+                            </span>
+                          </div>
+
+                          <div className="flex items-center px-2 py-1 bg-green-50 rounded text-xs">
+                            <Clock className="w-3 h-3 text-green-600 mr-1.5" />
+                            <span className="text-green-700 font-medium mr-1">
+                              Time:
+                            </span>
+                            <span className="text-green-900 font-semibold">
+                              {Array.isArray(med.timing)
+                                ? med.timing.join(", ")
+                                : med.timing}
+                            </span>
+                          </div>
+
+                          {med.beforeAfterMeal && (
+                            <div className="flex items-center px-2 py-1 bg-orange-50 rounded text-xs">
+                              <Utensils className="w-3 h-3 text-orange-600 mr-1.5" />
+                              <span className="text-orange-700 font-medium mr-1">
+                                Meal:
+                              </span>
+                              <span className="text-orange-900 font-semibold">
+                                {med.beforeAfterMeal}
+                              </span>
+                            </div>
+                          )}
+                        </div>
+                      </>
+                    )}
                   </div>
                 ))}
               </div>
-            </div>
-          )}
+            ) : (
+              <div className="text-center py-8">
+                <div className="w-16 h-16 bg-gray-100 rounded-full flex items-center justify-center mx-auto mb-4">
+                  <Pill className="w-8 h-8 text-gray-400" />
+                </div>
+                <p className="text-gray-500 text-sm">No medications recorded</p>
+                <button
+                  onClick={() => setShowAddMedication(true)}
+                  className="cursor-pointer mt-4 flex items-center justify-center w-12 h-12 bg-blue-500 text-white rounded-full hover:bg-blue-600 hover:scale-110 transition-all duration-300 ease-in-out shadow-md hover:shadow-lg mx-auto"
+                  title="Add your first medication"
+                >
+                  <Plus className="w-6 h-6" />
+                </button>
+              </div>
+            )}
+
+            {/* Add Medication Modal */}
+            {showAddMedication && (
+              <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center p-4 z-50">
+                <div className="bg-white rounded-xl p-6 w-full max-w-md max-h-[90vh] overflow-y-auto">
+                  <div className="flex items-center justify-between mb-4">
+                    <h3 className="text-lg font-semibold text-gray-800">
+                      Add New Medication
+                    </h3>
+                    <button
+                      onClick={() => setShowAddMedication(false)}
+                      className="cursor-pointer p-1 text-gray-600 hover:bg-gray-100 rounded"
+                    >
+                      <X className="w-5 h-5" />
+                    </button>
+                  </div>
+
+                  <div className="space-y-4">
+                    <div>
+                      <label className="block text-sm font-medium text-gray-700 mb-1">
+                        Medication Name *
+                      </label>
+                      <input
+                        type="text"
+                        value={newMedication.name}
+                        onChange={(e) =>
+                          setNewMedication((prev) => ({
+                            ...prev,
+                            name: e.target.value,
+                          }))
+                        }
+                        className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+                        placeholder="Enter medication name"
+                      />
+                    </div>
+
+                    <div>
+                      <label className="block text-sm font-medium text-gray-700 mb-1">
+                        Dosage (in Mg) *
+                      </label>
+                      <input
+                        type="text"
+                        value={newMedication.dosage}
+                        onChange={(e) =>
+                          setNewMedication((prev) => ({
+                            ...prev,
+                            dosage: e.target.value,
+                          }))
+                        }
+                        className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+                        placeholder="e.g., 15"
+                      />
+                    </div>
+
+                    <div>
+                      <label className="block text-sm font-medium text-gray-700 mb-1">
+                        Frequency *
+                      </label>
+                      <input
+                        type="text"
+                        value={newMedication.frequency}
+                        onChange={(e) =>
+                          setNewMedication((prev) => ({
+                            ...prev,
+                            frequency: e.target.value,
+                          }))
+                        }
+                        className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+                        placeholder="e.g., Twice daily"
+                      />
+                    </div>
+
+                    <div>
+                      <label className="block text-sm font-medium text-gray-700 mb-1">
+                        Timing *
+                      </label>
+                      {newMedication.timing.map((time, timeIndex) => (
+                        <div
+                          key={timeIndex}
+                          className="flex items-center gap-2 mb-2"
+                        >
+                          <input
+                            type="time"
+                            value={time}
+                            onChange={(e) =>
+                              updateTimingField(timeIndex, e.target.value)
+                            }
+                            className="cursor-pointer flex-1 px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+                          />
+                          {newMedication.timing.length > 1 && (
+                            <button
+                              onClick={() => removeTimingField(timeIndex)}
+                              className="p-2 text-red-500 hover:bg-red-100 rounded"
+                            >
+                              <X className="w-4 h-4" />
+                            </button>
+                          )}
+                        </div>
+                      ))}
+                      <button
+                        onClick={() => addTimingField()}
+                        className="cursor-pointer text-sm text-blue-600 hover:text-blue-800"
+                      >
+                        + Add another time
+                      </button>
+                    </div>
+
+                    <div>
+                      <label className="block text-sm font-medium text-gray-700 mb-1">
+                        Meal Timing
+                      </label>
+                      <select
+                        value={newMedication.beforeAfterMeal}
+                        onChange={(e) =>
+                          setNewMedication((prev) => ({
+                            ...prev,
+                            beforeAfterMeal: e.target.value,
+                          }))
+                        }
+                        className="cursor-pointer w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+                      >
+                        <option value="">Select meal timing</option>
+                        <option value="Before meal">Before meal</option>
+                        <option value="After meal">After meal</option>
+                        <option value="With meal">With meal</option>
+                        <option value="Empty stomach">Empty stomach</option>
+                      </select>
+                    </div>
+                  </div>
+
+                  <div className="flex space-x-3 mt-6">
+                    <button
+                      onClick={handleAddMedication}
+                      className="cursor-pointer flex-1 bg-blue-500 text-white py-2 px-4 rounded-lg hover:bg-blue-600 transition-colors"
+                    >
+                      Add Medication
+                    </button>
+                    <button
+                      onClick={() => setShowAddMedication(false)}
+                      className="cursor-pointer flex-1 bg-gray-200 text-gray-800 py-2 px-4 rounded-lg hover:bg-gray-300 transition-colors"
+                    >
+                      Cancel
+                    </button>
+                  </div>
+                </div>
+              </div>
+            )}
+          </div>
+        </div>
+
+        {/* Your Care Team - Now moved below the bottom grid */}
+        <div className="mt-6 bg-white rounded-xl shadow-lg p-6 border-l-4 border-indigo-500">
+          <h2 className="text-lg font-semibold text-gray-800 mb-4 flex items-center">
+            <Users className="w-5 h-5 mr-2 text-indigo-500" />
+            Your Care Team
+          </h2>
+
+          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+            {userData.caregivers.map((caregiver, index) => (
+              <div
+                key={index}
+                className="flex items-center p-4 rounded-lg border border-gray-100 hover:bg-gray-50 transition-colors"
+              >
+                <div className="w-10 h-10 bg-indigo-100 rounded-full flex items-center justify-center mr-3">
+                  <User className="w-5 h-5 text-indigo-600" />
+                </div>
+                <div className="flex-1">
+                  <p className="font-medium text-gray-800">{caregiver.name}</p>
+                  <div className="flex flex-col mt-1 space-y-1">
+                    <div className="flex items-center text-xs text-gray-500">
+                      <Mail className="w-3 h-3 mr-1" />
+                      {caregiver.email}
+                    </div>
+                    {caregiver.phone && (
+                      <div className="flex items-center text-xs text-gray-500">
+                        <Phone className="w-3 h-3 mr-1" />
+                        {caregiver.phone}
+                      </div>
+                    )}
+                  </div>
+                </div>
+              </div>
+            ))}
+          </div>
         </div>
       </div>
     </div>
