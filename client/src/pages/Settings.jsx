@@ -1,0 +1,540 @@
+import { useState, useEffect } from "react";
+import { useUser } from "@clerk/clerk-react";
+import { toast } from "react-hot-toast";
+import {
+  Plus,
+  Edit,
+  Trash,
+  Save,
+  X,
+  Loader,
+  ChevronDown,
+  ChevronUp,
+} from "lucide-react";
+
+const Settings = () => {
+  const API_URL = import.meta.env.VITE_API_URL || "";
+  const { user } = useUser();
+  const [isLoading, setIsLoading] = useState(true);
+  const [isSaving, setIsSaving] = useState(false);
+  const [userData, setUserData] = useState(null);
+  const [caregivers, setCaregivers] = useState([]);
+  const [originalCaregivers, setOriginalCaregivers] = useState([]);
+  const [error, setError] = useState("");
+  const [showCaregivers, setShowCaregivers] = useState(false);
+  const [editingIndex, setEditingIndex] = useState(null);
+  const [showConfirmDialog, setShowConfirmDialog] = useState(false);
+  const [confirmAction, setConfirmAction] = useState(null);
+  const [hasChanges, setHasChanges] = useState(false);
+
+  // Fetch user profile data including caregivers set during onboarding
+  useEffect(() => {
+    const fetchUserData = async () => {
+      try {
+        setIsLoading(true);
+        const response = await fetch(
+          `${API_URL}/api/users/profile/${user?.id}`
+        );
+        const data = await response.json();
+
+        if (response.ok) {
+          setUserData(data.user);
+          // Make sure we're correctly accessing the caregivers from the API response
+          if (data.user && Array.isArray(data.user.caregivers)) {
+            setCaregivers(data.user.caregivers);
+            setOriginalCaregivers(
+              JSON.parse(JSON.stringify(data.user.caregivers))
+            );
+            console.log("Fetched caregivers:", data.user.caregivers);
+          } else {
+            setCaregivers([]);
+            setOriginalCaregivers([]);
+            console.log("No caregivers found or invalid format");
+          }
+        } else {
+          setError(data.message || "Failed to load profile data");
+        }
+      } catch (error) {
+        console.error("Error fetching user data:", error);
+        setError("An error occurred while loading your profile");
+      } finally {
+        setIsLoading(false);
+      }
+    };
+
+    if (user?.id) {
+      fetchUserData();
+    }
+  }, [API_URL, user?.id]);
+
+  // Check for changes
+  useEffect(() => {
+    if (originalCaregivers.length === 0) return;
+
+    const caregiverChanged =
+      JSON.stringify(caregivers) !== JSON.stringify(originalCaregivers);
+    setHasChanges(caregiverChanged);
+  }, [caregivers, originalCaregivers]);
+
+  // Handle input changes for caregiver fields
+  const handleCaregiverChange = (index, field, value) => {
+    // Clear error when user starts typing
+    if (error && (field === "name" || field === "email")) {
+      setError("");
+    }
+
+    const updatedCaregivers = [...caregivers];
+    updatedCaregivers[index] = {
+      ...updatedCaregivers[index],
+      [field]: value,
+    };
+    setCaregivers(updatedCaregivers);
+  };
+  //Removes error message after an interval
+  useEffect(() => {
+    if (error) {
+      const timer = setTimeout(() => {
+        setError("");
+      }, 5000);
+
+      return () => clearTimeout(timer);
+    }
+  }, [error]);
+
+  // Setup confirmation dialog
+  const setupConfirmation = (action, params) => {
+    setConfirmAction({ type: action, params });
+    setShowConfirmDialog(true);
+  };
+
+  // Execute confirmed action
+  const executeConfirmedAction = () => {
+    if (!confirmAction) return;
+
+    setShowConfirmDialog(false);
+    setConfirmAction(null);
+
+    switch (confirmAction.type) {
+      case "add":
+        addCaregiverExecute();
+        break;
+      case "remove":
+        removeCaregiverExecute(confirmAction.params.index);
+        break;
+      case "save":
+        saveChangesExecute();
+        break;
+      case "edit":
+        startEditingExecute(confirmAction.params.index);
+        break;
+      default:
+        break;
+    }
+  };
+
+  // Cancel confirmation
+  const cancelConfirmation = () => {
+    setShowConfirmDialog(false);
+    setConfirmAction(null);
+  };
+
+  // Add another caregiver confirmation
+  const addCaregiverConfirm = () => {
+    if (caregivers.length < 5) {
+      setupConfirmation("add");
+    } else {
+      toast.error("Maximum of 5 caregivers allowed");
+    }
+  };
+
+  // Add another caregiver execution
+  const addCaregiverExecute = () => {
+    setCaregivers([...caregivers, { name: "", email: "", phone: "" }]);
+    setEditingIndex(caregivers.length);
+    toast.success("New caregiver added");
+  };
+
+  // Remove a caregiver confirmation
+  const removeCaregiverConfirm = (index) => {
+    if (index === 0) {
+      toast.error("Primary caregiver cannot be removed");
+      return;
+    }
+    setupConfirmation("remove", { index });
+  };
+
+  // Remove a caregiver execution
+  const removeCaregiverExecute = (index) => {
+    if (index > 0) {
+      const updatedCaregivers = [...caregivers];
+      updatedCaregivers.splice(index, 1);
+      setCaregivers(updatedCaregivers);
+      setEditingIndex(null);
+      toast.success("Caregiver removed successfully");
+    }
+  };
+
+  // Start editing a caregiver confirmation
+  const startEditingConfirm = (index) => {
+    setupConfirmation("edit", { index });
+  };
+
+  // Start editing a caregiver execution
+  const startEditingExecute = (index) => {
+    setEditingIndex(index);
+    toast.info("Now editing caregiver information");
+  };
+
+  // Cancel editing
+  const cancelEditing = () => {
+    setEditingIndex(null);
+  };
+
+  // Save caregiver changes confirmation
+  const saveChangesConfirm = () => {
+    if (!hasChanges) {
+      toast.info("No changes to save");
+      return;
+    }
+    setupConfirmation("save");
+  };
+
+  // Save caregiver changes execution
+  const saveChangesExecute = async () => {
+    try {
+      // Validate caregivers
+      if (!caregivers.length) {
+        setError("At least one caregiver is required");
+        return;
+      }
+
+      // Check if primary caregiver has name and email
+      if (!caregivers[0].name.trim() || !caregivers[0].email.trim()) {
+        setError("Primary caregiver must have Name and Email");
+        return;
+      }
+
+      // Check all caregivers for valid information
+      for (let i = 0; i < caregivers.length; i++) {
+        const caregiver = caregivers[i];
+        if (!caregiver.name.trim() || !caregiver.email.trim()) {
+          setError(`Caregiver #${i + 1} must have Name and Email`);
+          return;
+        }
+      }
+
+      setIsSaving(true);
+      setError("");
+
+      // Send updated caregivers to the API
+      const response = await fetch(`${API_URL}/api/users/caregivers`, {
+        method: "PUT",
+        headers: {
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({
+          userId: user?.id,
+          caregivers: caregivers,
+        }),
+      });
+
+      const data = await response.json();
+
+      if (!response.ok) {
+        throw new Error(data.message || "Failed to save caregiver data");
+      }
+
+      toast.success("Caregiver information saved successfully");
+      setEditingIndex(null);
+      setOriginalCaregivers(JSON.parse(JSON.stringify(caregivers)));
+      setHasChanges(false);
+    } catch (error) {
+      console.error("Error saving caregivers:", error);
+      setError(error.message || "An error occurred while saving changes");
+      toast.error("Failed to save changes");
+    } finally {
+      setIsSaving(false);
+    }
+  };
+
+  if (isLoading) {
+    return (
+      <div className="flex justify-center items-center h-64">
+        <div className="animate-spin rounded-full h-12 w-12 border-t-2 border-b-2 border-blue-500">
+          <Loader className="h-12 w-12 text-blue-500" />
+        </div>
+      </div>
+    );
+  }
+
+  // Confirmation Dialog
+  const ConfirmationDialog = () => {
+    if (!showConfirmDialog) return null;
+
+    let message = "";
+    let title = "Confirm Action";
+
+    switch (confirmAction?.type) {
+      case "add":
+        title = "Add New Caregiver";
+        message = "Are you sure you want to add a new caregiver?";
+        break;
+      case "remove":
+        title = "Remove Caregiver";
+        message =
+          "Are you sure you want to remove this caregiver? This action cannot be undone.";
+        break;
+      case "save":
+        title = "Save Changes";
+        message = "Are you sure you want to save your changes to caregivers?";
+        break;
+      case "edit":
+        title = "Edit Caregiver";
+        message = "Do you want to edit this caregiver's information?";
+        break;
+      default:
+        message = "Are you sure you want to proceed?";
+    }
+
+    return (
+      <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
+        <div className="bg-white rounded-lg p-6 max-w-md w-full">
+          <h3 className="text-lg font-medium text-gray-900 mb-2">{title}</h3>
+          <p className="text-gray-600 mb-4">{message}</p>
+          <div className="flex justify-end space-x-2">
+            <button
+              onClick={cancelConfirmation}
+              className="px-4 py-2 text-gray-700 border border-gray-300 cursor-pointer rounded hover:bg-gray-100"
+            >
+              Cancel
+            </button>
+            <button
+              onClick={executeConfirmedAction}
+              className="px-4 py-2 bg-blue-600 text-white cursor-pointer rounded hover:bg-blue-700"
+            >
+              Confirm
+            </button>
+          </div>
+        </div>
+      </div>
+    );
+  };
+
+  return (
+    <div className="max-w-4xl mx-auto bg-white rounded-lg shadow p-6">
+      <h1 className="text-2xl font-bold text-gray-800 mb-6">Settings</h1>
+
+      <div className="mb-8">
+        <button
+          onClick={() => {
+            console.log("Current caregivers:", caregivers);
+            setShowCaregivers(!showCaregivers);
+          }}
+          className="bg-blue-600 text-white py-2 px-4 rounded cursor-pointer hover:bg-blue-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-blue-500 mb-4 flex items-center"
+        >
+          {showCaregivers ? (
+            <>
+              <ChevronUp className="h-5 w-5 mr-1" /> Hide Caregiver Settings
+            </>
+          ) : (
+            <>
+              <ChevronDown className="h-5 w-5 mr-1" /> Modify Caregivers
+            </>
+          )}
+        </button>
+
+        {showCaregivers && (
+          <div>
+            <p className="text-gray-600 mb-4">
+              You can add up to 5 caregivers. At least one caregiver is
+              required.
+            </p>
+
+            {error && (
+              <div className="bg-red-100 border border-red-400 text-red-700 px-4 py-3 rounded mb-4">
+                {error}
+              </div>
+            )}
+
+            <div className="mb-4">
+              {caregivers && caregivers.length > 0 ? (
+                caregivers.map((caregiver, index) => (
+                  <div
+                    key={index}
+                    className="mb-6 p-4 border border-gray-200 rounded-lg bg-gray-50"
+                  >
+                    <div className="flex justify-between items-center mb-3">
+                      <h3 className="text-lg font-medium">
+                        {index === 0
+                          ? "Primary Caregiver"
+                          : `Caregiver #${index + 1}`}
+                      </h3>
+                      <div className="flex space-x-2">
+                        {editingIndex === index ? (
+                          <button
+                            type="button"
+                            onClick={cancelEditing}
+                            className="text-gray-500 cursor-pointer hover:text-gray-700 flex items-center"
+                          >
+                            <X className="h-4 w-4 mr-1" /> Cancel
+                          </button>
+                        ) : (
+                          <button
+                            type="button"
+                            onClick={() => startEditingConfirm(index)}
+                            className="text-blue-500 cursor-pointer hover:text-blue-700 flex items-center"
+                          >
+                            <Edit className="h-4 w-4 mr-1" /> Edit
+                          </button>
+                        )}
+                        {index > 0 && (
+                          <button
+                            type="button"
+                            onClick={() => removeCaregiverConfirm(index)}
+                            className="text-red-500 cursor-pointer hover:text-red-700 flex items-center"
+                          >
+                            <Trash className="h-4 w-4 mr-1" /> Remove
+                          </button>
+                        )}
+                      </div>
+                    </div>
+
+                    {editingIndex === index ? (
+                      <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                        <div>
+                          <label className="block text-gray-700 text-sm font-medium mb-1">
+                            Name <span className="text-red-500">*</span>
+                          </label>
+                          <input
+                            type="text"
+                            value={caregiver.name || ""}
+                            onChange={(e) =>
+                              handleCaregiverChange(
+                                index,
+                                "name",
+                                e.target.value
+                              )
+                            }
+                            className="w-full p-2 border border-gray-300 rounded focus:border-blue-500 focus:ring focus:ring-blue-200"
+                            placeholder="Caregiver's full name"
+                          />
+                        </div>
+
+                        <div>
+                          <label className="block text-gray-700 text-sm font-medium mb-1">
+                            Email <span className="text-red-500">*</span>
+                          </label>
+                          <input
+                            type="email"
+                            value={caregiver.email || ""}
+                            onChange={(e) =>
+                              handleCaregiverChange(
+                                index,
+                                "email",
+                                e.target.value
+                              )
+                            }
+                            className="w-full p-2 border border-gray-300 rounded focus:border-blue-500 focus:ring focus:ring-blue-200"
+                            placeholder="Caregiver's email"
+                          />
+                        </div>
+
+                        <div>
+                          <label className="block text-gray-700 text-sm font-medium mb-1">
+                            Phone (Optional)
+                          </label>
+                          <input
+                            type="tel"
+                            value={caregiver.phone || ""}
+                            onChange={(e) =>
+                              handleCaregiverChange(
+                                index,
+                                "phone",
+                                e.target.value
+                              )
+                            }
+                            className="w-full p-2 border border-gray-300 rounded focus:border-blue-500 focus:ring focus:ring-blue-200"
+                            placeholder="Caregiver's phone number"
+                          />
+                        </div>
+                      </div>
+                    ) : (
+                      <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                        <div>
+                          <p className="text-sm text-gray-500">Name</p>
+                          <p className="font-medium">{caregiver.name}</p>
+                        </div>
+                        <div>
+                          <p className="text-sm text-gray-500">Email</p>
+                          <p className="font-medium">{caregiver.email}</p>
+                        </div>
+                        <div>
+                          <p className="text-sm text-gray-500">Phone</p>
+                          <p className="font-medium">
+                            {caregiver.phone || "Not provided"}
+                          </p>
+                        </div>
+                      </div>
+                    )}
+                  </div>
+                ))
+              ) : (
+                <div className="text-center py-4">
+                  <p className="text-gray-500">
+                    No caregivers found. Add your first caregiver.
+                  </p>
+                </div>
+              )}
+            </div>
+
+            <div className="flex justify-between items-center mt-4">
+              <button
+                type="button"
+                onClick={addCaregiverConfirm}
+                disabled={caregivers.length >= 5}
+                className={`flex items-center ${
+                  caregivers.length >= 5
+                    ? "text-gray-400 cursor-not-allowed"
+                    : "text-blue-600 cursor-pointer hover:text-blue-800"
+                }`}
+              >
+                <Plus className="h-5 w-5 mr-1" />
+                {caregivers.length >= 5
+                  ? "Maximum caregivers reached (5)"
+                  : "Add Another Caregiver"}
+              </button>
+
+              <button
+                type="button"
+                onClick={saveChangesConfirm}
+                disabled={isSaving || !hasChanges}
+                className={`flex items-center py-2 px-4 rounded focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-blue-500 ${
+                  hasChanges
+                    ? "bg-blue-600 text-white hover:bg-blue-700 cursor-pointer"
+                    : "bg-gray-300 text-gray-500 cursor-not-allowed"
+                }`}
+              >
+                {isSaving ? (
+                  <>
+                    <Loader className="animate-spin h-4 w-4 mr-2" />
+                    Saving...
+                  </>
+                ) : (
+                  <>
+                    <Save className="h-4 w-4 mr-1" />
+                    Save Changes
+                  </>
+                )}
+              </button>
+            </div>
+          </div>
+        )}
+      </div>
+
+      {/* Confirmation Dialog */}
+      <ConfirmationDialog />
+    </div>
+  );
+};
+
+export default Settings;
