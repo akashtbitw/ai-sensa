@@ -25,8 +25,9 @@ import {
   Plus,
   Save,
   X,
+  PersonStanding,
+  ExternalLink,
 } from "lucide-react";
-import { PersonStanding, ExternalLink } from "lucide-react";
 const vitalRangesConfig = {
   "heart-rate": {
     normalRange: { min: 60, max: 100 },
@@ -68,6 +69,12 @@ const Dashboard = () => {
     timing: [""],
     beforeAfterMeal: "",
   });
+  const [showDeleteAlert, setShowDeleteAlert] = useState(false);
+  const [medicationToDelete, setMedicationToDelete] = useState(null);
+  const [activeReminders, setActiveReminders] = useState([]);
+  const [showReminderHistory, setShowReminderHistory] = useState(false);
+  const [reminderHistory, setReminderHistory] = useState([]);
+  const [reminderIntervals, setReminderIntervals] = useState([]);
   const [notifications] = useState([
     {
       id: 1,
@@ -183,6 +190,102 @@ const Dashboard = () => {
   };
 
   useEffect(() => {
+    // Clear existing intervals
+    reminderIntervals.forEach((interval) => clearInterval(interval));
+
+    const newIntervals = [];
+
+    userData?.medications?.forEach((medication, medIndex) => {
+      if (medication.timing && Array.isArray(medication.timing)) {
+        medication.timing.forEach((time) => {
+          const interval = setInterval(() => {
+            const now = new Date();
+            const currentTime =
+              now.getHours().toString().padStart(2, "0") +
+              ":" +
+              now.getMinutes().toString().padStart(2, "0");
+
+            if (currentTime === time) {
+              // Check if reminder already exists for this medication and time today
+              const today = now.toDateString();
+              const reminderKey = `${medication.name}-${time}-${today}`;
+
+              const existingReminder = activeReminders.find(
+                (r) => r.key === reminderKey
+              );
+              if (!existingReminder) {
+                showMedicationReminder(medication, time, reminderKey);
+              }
+            }
+          }, 60000); // Check every minute
+
+          newIntervals.push(interval);
+        });
+      }
+    });
+
+    setReminderIntervals(newIntervals);
+
+    // Load reminder history from localStorage
+    const savedHistory = localStorage.getItem("medicationReminderHistory");
+    if (savedHistory) {
+      const history = JSON.parse(savedHistory);
+      // Filter history to only show last 1 hour
+      const oneHourAgo = Date.now() - 60 * 60 * 1000;
+      const recentHistory = history.filter(
+        (item) => item.timestamp > oneHourAgo
+      );
+      setReminderHistory(recentHistory);
+      localStorage.setItem(
+        "medicationReminderHistory",
+        JSON.stringify(recentHistory)
+      );
+    }
+
+    return () => {
+      newIntervals.forEach((interval) => clearInterval(interval));
+    };
+  }, [userData?.medications]);
+
+  useEffect(() => {
+    const handleBeforeUnload = () => {
+      // Get current active reminders and update their status to pending
+      const currentActiveReminders = activeReminders.map((reminder) => ({
+        ...reminder,
+        status: "pending",
+        dismissedAt: Date.now(),
+      }));
+
+      if (currentActiveReminders.length > 0) {
+        // Update history with pending status for active reminders
+        const updatedHistory = reminderHistory.map((item) => {
+          const activeReminder = currentActiveReminders.find(
+            (ar) => ar.id === item.id
+          );
+          return activeReminder ? activeReminder : item;
+        });
+
+        // Add any new active reminders to history
+        const newActiveReminders = currentActiveReminders.filter(
+          (ar) => !reminderHistory.some((item) => item.id === ar.id)
+        );
+
+        const finalHistory = [...updatedHistory, ...newActiveReminders];
+        localStorage.setItem(
+          "medicationReminderHistory",
+          JSON.stringify(finalHistory)
+        );
+      }
+    };
+
+    window.addEventListener("beforeunload", handleBeforeUnload);
+
+    return () => {
+      window.removeEventListener("beforeunload", handleBeforeUnload);
+    };
+  }, [activeReminders, reminderHistory]);
+
+  useEffect(() => {
     const timer = setInterval(() => {
       setCurrentTime(new Date());
     }, 1000);
@@ -283,6 +386,76 @@ const Dashboard = () => {
     }
   };
 
+  // 3. Add this function to show medication reminder
+  const showMedicationReminder = (medication, time, reminderKey) => {
+    // Play notification sound
+    const audio = new Audio(
+      "data:audio/wav;base64,UklGRnoGAABXQVZFZm10IBAAAAABAAEAQB8AAEAfAAABAAgAZGF0YQoGAACBhYqFbF1fdJivrJBhNjVgodDbq2EcBj+a2/LDciUFLIHO8tiJNwgZaLvt559NEAxQp+PwtmMcBjiR1/LMeSwFJHfH8N2QQAoUXrTp66hVFApGn+DyvmUgAzON2vLCayEsAA=="
+    );
+    audio.play().catch((e) => console.log("Audio play failed:", e));
+
+    const newReminder = {
+      key: reminderKey,
+      medication,
+      time,
+      timestamp: Date.now(),
+      id: Date.now() + Math.random(),
+    };
+
+    setActiveReminders((prev) => [...prev, newReminder]);
+
+    // Add to history
+    const historyItem = {
+      ...newReminder,
+      status: "active",
+    };
+
+    setReminderHistory((prevHistory) => {
+      const updatedHistory = [...prevHistory, historyItem];
+      localStorage.setItem(
+        "medicationReminderHistory",
+        JSON.stringify(updatedHistory)
+      );
+      return updatedHistory;
+    });
+  };
+
+  const handleReminderDismiss = (reminderId) => {
+    setActiveReminders((prev) => prev.filter((r) => r.id !== reminderId));
+
+    // Update history to pending state
+    setReminderHistory((prevHistory) => {
+      const updatedHistory = prevHistory.map((item) =>
+        item.id === reminderId
+          ? { ...item, status: "pending", dismissedAt: Date.now() }
+          : item
+      );
+      localStorage.setItem(
+        "medicationReminderHistory",
+        JSON.stringify(updatedHistory)
+      );
+      return updatedHistory;
+    });
+  };
+
+  // 4. Add this function to handle reminder acknowledgment
+  const handleReminderAcknowledge = (reminderId) => {
+    // Remove from active reminders
+    setActiveReminders((prev) => prev.filter((r) => r.id !== reminderId));
+
+    // Update history to acknowledged
+    const updatedHistory = reminderHistory.map((item) =>
+      item.id === reminderId
+        ? { ...item, status: "acknowledged", acknowledgedAt: Date.now() }
+        : item
+    );
+    setReminderHistory(updatedHistory);
+    localStorage.setItem(
+      "medicationReminderHistory",
+      JSON.stringify(updatedHistory)
+    );
+  };
+
   const handleEditMedication = (index) => {
     setEditingMedication({
       index,
@@ -327,11 +500,17 @@ const Dashboard = () => {
     }
   };
 
-  const handleDeleteMedication = async (index) => {
-    if (window.confirm("Are you sure you want to delete this medication?")) {
+  const handleDeleteMedication = (index) => {
+    setMedicationToDelete(index);
+    setShowDeleteAlert(true);
+  };
+
+  // Add this new function
+  const handleConfirmDelete = async () => {
+    if (medicationToDelete !== null) {
       try {
         const updatedMedications = userData.medications.filter(
-          (_, i) => i !== index
+          (_, i) => i !== medicationToDelete
         );
 
         const response = await fetch(`${API_URL}/api/users/medications`, {
@@ -355,6 +534,9 @@ const Dashboard = () => {
         console.error("Error deleting medication:", error);
       }
     }
+
+    setShowDeleteAlert(false);
+    setMedicationToDelete(null);
   };
 
   const handleAddMedication = async () => {
@@ -870,15 +1052,36 @@ const Dashboard = () => {
                 <Stethoscope className="w-5 h-5 mr-2 text-blue-500" />
                 Current Medications
               </h2>
-              {userData.medications.length > 0 && (
+              <div className="flex items-center space-x-2">
+                {/* Reminder History Button */}
                 <button
-                  onClick={() => setShowAddMedication(true)}
-                  className="cursor-pointer flex items-center justify-center w-10 h-10 bg-blue-500 text-white rounded-full hover:bg-blue-600 hover:scale-110 transition-all duration-300 ease-in-out shadow-md hover:shadow-lg opacity-0 group-hover/container:opacity-100 transform translate-y-1 group-hover/container:translate-y-0"
-                  title="Add new medication"
+                  onClick={() => setShowReminderHistory(true)}
+                  className="cursor-pointer flex items-center justify-center w-10 h-10 bg-green-500 text-white rounded-full hover:bg-green-600 hover:scale-110 transition-all duration-300 ease-in-out shadow-md hover:shadow-lg relative"
+                  title="View reminder history"
                 >
-                  <Plus className="w-5 h-5" />
+                  <Bell className="w-5 h-5" />
+                  {reminderHistory.filter((r) => r.status === "pending")
+                    .length > 0 && (
+                    <span className="absolute -top-1 -right-1 bg-red-500 text-white text-xs rounded-full w-5 h-5 flex items-center justify-center">
+                      {
+                        reminderHistory.filter((r) => r.status === "pending")
+                          .length
+                      }
+                    </span>
+                  )}
                 </button>
-              )}
+
+                {/* Add Medication Button */}
+                {userData.medications.length > 0 && (
+                  <button
+                    onClick={() => setShowAddMedication(true)}
+                    className="cursor-pointer flex items-center justify-center w-10 h-10 bg-blue-500 text-white rounded-full hover:bg-blue-600 hover:scale-110 transition-all duration-300 ease-in-out shadow-md hover:shadow-lg opacity-0 group-hover/container:opacity-100 transform translate-y-1 group-hover/container:translate-y-0"
+                    title="Add new medication"
+                  >
+                    <Plus className="w-5 h-5" />
+                  </button>
+                )}
+              </div>
             </div>
 
             {userData.medications && userData.medications.length > 0 ? (
@@ -1078,7 +1281,7 @@ const Dashboard = () => {
                             <div className="flex items-center px-2 py-1 bg-orange-50 rounded text-xs">
                               <Utensils className="w-3 h-3 text-orange-600 mr-1.5" />
                               <span className="text-orange-700 font-medium mr-1">
-                                Meal:
+                                Take:
                               </span>
                               <span className="text-orange-900 font-semibold">
                                 {med.beforeAfterMeal}
@@ -1254,6 +1457,182 @@ const Dashboard = () => {
               </div>
             )}
           </div>
+          {showDeleteAlert && (
+            <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center p-4 z-50">
+              <div className="bg-white rounded-xl p-6 w-full max-w-sm shadow-2xl">
+                <div className="flex items-center mb-4">
+                  <div className="w-10 h-10 bg-red-100 rounded-full flex items-center justify-center mr-3">
+                    <AlertCircle className="w-5 h-5 text-red-600" />
+                  </div>
+                  <div>
+                    <h3 className="text-lg font-semibold text-gray-800">
+                      Delete Medication
+                    </h3>
+                  </div>
+                </div>
+
+                <p className="text-gray-600 mb-6">
+                  Are you sure you want to delete this medication? This action
+                  cannot be undone.
+                </p>
+
+                <div className="flex space-x-3">
+                  <button
+                    onClick={handleConfirmDelete}
+                    className="cursor-pointer flex-1 bg-red-500 text-white py-2 px-4 rounded-lg hover:bg-red-600 transition-colors font-medium"
+                  >
+                    Delete
+                  </button>
+                  <button
+                    onClick={() => {
+                      setShowDeleteAlert(false);
+                      setMedicationToDelete(null);
+                    }}
+                    className="cursor-pointer flex-1 bg-gray-200 text-gray-800 py-2 px-4 rounded-lg hover:bg-gray-300 transition-colors font-medium"
+                  >
+                    Cancel
+                  </button>
+                </div>
+              </div>
+            </div>
+          )}
+          {/* Active Reminder Notifications */}
+          {activeReminders
+            .sort((a, b) => b.timestamp - a.timestamp) // Sort by timestamp descending (latest first)
+            .map((reminder, index) => (
+              <div
+                key={reminder.id}
+                className="fixed right-4 bg-red-500 text-white p-4 rounded-lg shadow-lg z-50 max-w-sm animate-pulse"
+                style={{ top: `${16 + index * 200}px` }} // Stack reminders vertically with 120px gap
+              >
+                <div className="flex items-center justify-between mb-2">
+                  <h4 className="font-semibold flex items-center">
+                    <Bell className="w-4 h-4 mr-2" />
+                    Medication Reminder
+                  </h4>
+                  <button
+                    onClick={() => handleReminderDismiss(reminder.id)}
+                    className="cursor-pointer text-white hover:text-red-200"
+                  >
+                    <X className="w-4 h-4" />
+                  </button>
+                </div>
+                <div className="text-sm">
+                  <p className="font-medium">{reminder.medication.name}</p>
+                  <p>Dosage: {reminder.medication.dosage} Mg</p>
+                  <p>Time: {reminder.time}</p>
+                  {reminder.medication.beforeAfterMeal && (
+                    <p>Take: {reminder.medication.beforeAfterMeal}</p>
+                  )}
+                </div>
+                <button
+                  onClick={() => handleReminderAcknowledge(reminder.id)}
+                  className="cursor-pointer mt-3 w-full bg-white text-red-500 py-1 px-3 rounded font-medium hover:bg-gray-100 transition-colors"
+                >
+                  Dismiss
+                </button>
+              </div>
+            ))}
+
+          {/* Reminder History Modal */}
+          {showReminderHistory && (
+            <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center p-4 z-50">
+              <div className="bg-white rounded-xl p-6 w-full max-w-md max-h-[90vh] overflow-y-auto">
+                <div className="flex items-center justify-between mb-4">
+                  <h3 className="text-lg font-semibold text-gray-800 flex items-center">
+                    <Bell className="w-5 h-5 mr-2 text-green-500" />
+                    Reminder History (Last 1 Hour)
+                  </h3>
+                  <button
+                    onClick={() => setShowReminderHistory(false)}
+                    className="cursor-pointer p-1 text-gray-600 hover:bg-gray-100 rounded"
+                  >
+                    <X className="w-5 h-5" />
+                  </button>
+                </div>
+
+                {reminderHistory.length > 0 ? (
+                  <div className="space-y-3 max-h-96 overflow-y-auto">
+                    {reminderHistory
+                      .sort((a, b) => b.timestamp - a.timestamp)
+                      .map((item) => (
+                        <div
+                          key={item.id}
+                          className={`p-3 rounded-lg border ${
+                            item.status === "acknowledged"
+                              ? "bg-green-50 border-green-200"
+                              : "bg-yellow-50 border-yellow-200"
+                          }`}
+                        >
+                          <div className="flex items-center justify-between mb-1">
+                            <span className="font-medium text-sm">
+                              {item.medication.name}
+                            </span>
+                            <div className="flex items-center space-x-2">
+                              <span
+                                className={`text-xs px-2 py-1 rounded ${
+                                  item.status === "acknowledged"
+                                    ? "bg-green-100 text-green-800"
+                                    : item.status === "pending"
+                                    ? "bg-yellow-100 text-yellow-800"
+                                    : "bg-red-100 text-red-800"
+                                }`}
+                              >
+                                {item.status === "acknowledged"
+                                  ? "Taken"
+                                  : item.status === "pending"
+                                  ? "Pending"
+                                  : "Active"}
+                              </span>
+                              {item.status === "pending" && (
+                                <button
+                                  onClick={() =>
+                                    handleReminderAcknowledge(item.id)
+                                  }
+                                  className="cursor-pointer text-xs bg-green-500 text-white px-2 py-1 rounded hover:bg-green-600"
+                                >
+                                  ✓ Done
+                                </button>
+                              )}
+                            </div>
+                          </div>
+                          <div className="text-xs text-gray-600 space-y-1">
+                            <p>Dosage: {item.medication.dosage} Mg</p>
+                            <p>Scheduled: {item.time}</p>
+                            <p>
+                              Reminded:{" "}
+                              {new Date(item.timestamp).toLocaleTimeString()}
+                            </p>
+                            {item.acknowledgedAt && (
+                              <p>
+                                Acknowledged:{" "}
+                                {new Date(
+                                  item.acknowledgedAt
+                                ).toLocaleTimeString()}
+                              </p>
+                            )}
+                          </div>
+                        </div>
+                      ))}
+                  </div>
+                ) : (
+                  <div className="text-center py-8">
+                    <Bell className="w-12 h-12 text-gray-300 mx-auto mb-2" />
+                    <p className="text-gray-500 text-sm">
+                      No reminders in the last hour
+                    </p>
+                  </div>
+                )}
+
+                <button
+                  onClick={() => setShowReminderHistory(false)}
+                  className="cursor-pointer w-full mt-4 bg-gray-200 text-gray-800 py-2 px-4 rounded-lg hover:bg-gray-300 transition-colors"
+                >
+                  Close
+                </button>
+              </div>
+            </div>
+          )}
         </div>
 
         {/* Your Care Team - Now moved below the bottom grid */}
