@@ -213,4 +213,57 @@ router.get("/profile/:userId", async (req, res) => {
   }
 });
 
+router.put("/profile", async (req, res) => {
+  try {
+    const { userId, name, height, weight, age, gender, healthConditions } =
+      req.body;
+
+    // Basic validation
+    if (!userId || !name || !height || !weight || !age || !gender) {
+      return res
+        .status(400)
+        .json({ message: "All profile fields are required" });
+    }
+
+    // Validate numeric fields
+    if (height <= 0 || weight <= 0 || age <= 0) {
+      return res.status(400).json({
+        message: "Height, weight, and age must be positive numbers",
+      });
+    }
+
+    // Find the user
+    const user = await User.findOne({ userId });
+    if (!user) {
+      return res.status(404).json({ message: "User not found" });
+    }
+
+    // Update profile fields
+    user.name = name.trim();
+    user.height = Number(height);
+    user.weight = Number(weight);
+    user.age = Number(age);
+    user.gender = gender;
+    user.healthConditions = healthConditions || [];
+
+    await user.save();
+
+    return res.status(200).json({
+      message: "Profile updated successfully",
+      user: {
+        id: user._id,
+        name: user.name,
+        height: user.height,
+        weight: user.weight,
+        age: user.age,
+        gender: user.gender,
+        healthConditions: user.healthConditions,
+      },
+    });
+  } catch (error) {
+    console.error("Error updating profile:", error);
+    return res.status(500).json({ message: "Failed to update profile" });
+  }
+});
+
 module.exports = router;

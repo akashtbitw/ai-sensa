@@ -12,7 +12,7 @@ const spo2Routes = require("./routes/spo2");
 const fallDetectionRoutes = require("./routes/fallDetection");
 const simulationRoutes = require("./routes/simulation");
 const userRoutes = require("./routes/users");
-
+const { router: notificationRoutes } = require("./routes/notifications");
 // Load environment variables
 dotenv.config();
 
@@ -37,6 +37,7 @@ app.use("/api/spo2", spo2Routes);
 app.use("/api/fall-detection", fallDetectionRoutes);
 app.use("/api/simulation", simulationRoutes);
 app.use("/api/users", userRoutes);
+app.use("/api/notifications", notificationRoutes);
 
 // Simple health check route
 app.get("/health", (req, res) => {

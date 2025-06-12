@@ -5,6 +5,8 @@ import {
   FaBell,
   FaCalendarCheck,
   FaChartLine,
+  FaBars,
+  FaTimes,
 } from "react-icons/fa";
 
 // Animation keyframes definition
@@ -56,17 +58,31 @@ body.clerk-animation::before {
   from { opacity: 0; }
   to { opacity: 1; }
 }
+
+/* Mobile menu animation */
+@keyframes slideInFromRight {
+  from {
+    transform: translateX(100%);
+  }
+  to {
+    transform: translateX(0);
+  }
+}
+
+.mobile-menu-enter {
+  animation: slideInFromRight 0.3s ease forwards;
+}
 `;
 
 const LandingPage = () => {
   const [showBackToTop, setShowBackToTop] = useState(false);
+  const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
   const [formData, setFormData] = useState({
     name: "",
     email: "",
     message: "",
   });
   const [animatedElements, setAnimatedElements] = useState([]);
-  // Removed showClerkAnimation state as it's no longer needed
   const [formSubmitted, setFormSubmitted] = useState(false);
   const elementsRef = useRef({});
   const { openSignIn } = useClerk();
@@ -113,6 +129,22 @@ const LandingPage = () => {
     return () => window.removeEventListener("scroll", handleScroll);
   }, [animatedElements]);
 
+  // Close mobile menu when clicking outside
+  useEffect(() => {
+    const handleClickOutside = (event) => {
+      if (
+        mobileMenuOpen &&
+        !event.target.closest(".mobile-menu") &&
+        !event.target.closest(".mobile-menu-button")
+      ) {
+        setMobileMenuOpen(false);
+      }
+    };
+
+    document.addEventListener("click", handleClickOutside);
+    return () => document.removeEventListener("click", handleClickOutside);
+  }, []);
+
   // Smooth scroll to section
   const scrollToSection = useCallback((elementId) => {
     const element = document.getElementById(elementId);
@@ -122,6 +154,7 @@ const LandingPage = () => {
         block: "start",
       });
     }
+    setMobileMenuOpen(false); // Close mobile menu after navigation
   }, []);
 
   // Scroll to top function
@@ -145,6 +178,7 @@ const LandingPage = () => {
   const handleClerkSignIn = useCallback(() => {
     // Apply a simple fade effect to the background before opening Clerk
     document.body.classList.add("clerk-animation");
+    setMobileMenuOpen(false); // Close mobile menu
 
     // Short timeout to allow for CSS transition
     setTimeout(() => {
@@ -157,21 +191,24 @@ const LandingPage = () => {
   }, [openSignIn]);
 
   // Handle form submission with nodemailer
-  const handleSubmit = useCallback(
-    async (e) => {
-      e.preventDefault();
+  const handleSubmit = useCallback(async () => {
+    // Basic validation
+    if (!formData.name || !formData.email || !formData.message) {
+      alert("Please fill in all fields");
+      return;
+    }
 
-      try {
-        // In a production environment, you would make an API call to your backend
-        // where nodemailer would be configured
+    try {
+      // In a production environment, you would make an API call to your backend
+      // where nodemailer would be configured
 
-        // Example of how the backend would be set up with nodemailer:
-        /*
+      // Example of how the backend would be set up with nodemailer:
+      /*
         // Server-side code (not included in frontend)
         const nodemailer = require('nodemailer');
         
         // Create transporter
-        const transporter = nodemailer.createTransport({
+        const transporter = nodemailer.createTransporter({
           service: 'gmail',
           auth: {
             user: 'your-email@gmail.com',
@@ -198,23 +235,21 @@ const LandingPage = () => {
         await transporter.sendMail(mailOptions);
         */
 
-        // For this demo, we'll simulate sending the email
-        console.log("Sending email to aisensa@gmail.com");
-        console.log(formData);
+      // For this demo, we'll simulate sending the email
+      console.log("Sending email to aisensa@gmail.com");
+      console.log(formData);
 
-        // Show success message
-        setFormSubmitted(true);
-        setTimeout(() => {
-          setFormSubmitted(false);
-          setFormData({ name: "", email: "", message: "" });
-        }, 3000);
-      } catch (error) {
-        console.error("Error sending email:", error);
-        alert("There was a problem sending your message. Please try again.");
-      }
-    },
-    [formData]
-  );
+      // Show success message
+      setFormSubmitted(true);
+      setTimeout(() => {
+        setFormSubmitted(false);
+        setFormData({ name: "", email: "", message: "" });
+      }, 3000);
+    } catch (error) {
+      console.error("Error sending email:", error);
+      alert("There was a problem sending your message. Please try again.");
+    }
+  }, [formData]);
 
   // Animation helper class
   const getAnimationClass = (id) => {
@@ -231,43 +266,87 @@ const LandingPage = () => {
   return (
     <div className="font-sans text-gray-800">
       {/* Sticky Header */}
-      <header className="bg-blue-950 px-10 py-4 flex justify-between items-center fixed top-0 left-0 right-0 z-50 shadow-md">
-        <h1 className="text-white text-2xl font-bold flex items-center">
+      <header className="bg-blue-950 px-4 sm:px-6 lg:px-10 py-4 flex justify-between items-center fixed top-0 left-0 right-0 z-50 shadow-md">
+        <h1 className="text-white text-xl sm:text-2xl font-bold flex items-center">
           <FaHeartbeat className="mr-2" />
-          <span className="text-3xl">AI-SENSA</span>
+          <span className="text-2xl sm:text-3xl">AI-SENSA</span>
         </h1>
-        <nav className="flex items-center">
+
+        {/* Desktop Navigation */}
+        <nav className="hidden md:flex items-center">
           <button
             onClick={() => scrollToSection("hero")}
-            className="text-white mx-5 cursor-pointer hover:text-yellow-400 transition-colors duration-300"
+            className="text-white mx-3 lg:mx-5 cursor-pointer hover:text-yellow-400 transition-colors duration-300"
           >
             Home
           </button>
           <button
             onClick={() => scrollToSection("features")}
-            className="text-white mx-5 cursor-pointer hover:text-yellow-400 transition-colors duration-300"
+            className="text-white mx-3 lg:mx-5 cursor-pointer hover:text-yellow-400 transition-colors duration-300"
           >
             Features
           </button>
           <button
             onClick={() => scrollToSection("contact")}
-            className="text-white mx-5 cursor-pointer hover:text-yellow-400 transition-colors duration-300"
+            className="text-white mx-3 lg:mx-5 cursor-pointer hover:text-yellow-400 transition-colors duration-300"
           >
             Contact
           </button>
           <button
             onClick={handleClerkSignIn}
-            className="text-white mx-5 cursor-pointer hover:text-yellow-400 transition-colors duration-300"
+            className="text-white mx-3 lg:mx-5 cursor-pointer hover:text-yellow-400 transition-colors duration-300"
           >
             Login
           </button>
         </nav>
+
+        {/* Mobile Menu Button */}
+        <button
+          className="md:hidden text-white text-2xl mobile-menu-button"
+          onClick={() => setMobileMenuOpen(!mobileMenuOpen)}
+        >
+          {mobileMenuOpen ? <FaTimes /> : <FaBars />}
+        </button>
       </header>
+
+      {/* Mobile Menu Overlay */}
+      {mobileMenuOpen && (
+        <div className="fixed inset-0 bg-black bg-opacity-50 z-40 md:hidden">
+          <div className="mobile-menu fixed right-0 top-0 h-full w-64 bg-blue-950 shadow-lg mobile-menu-enter">
+            <div className="pt-20 px-6">
+              <button
+                onClick={() => scrollToSection("hero")}
+                className="block w-full text-left text-white py-3 border-b border-blue-800 hover:text-yellow-400 transition-colors duration-300"
+              >
+                Home
+              </button>
+              <button
+                onClick={() => scrollToSection("features")}
+                className="block w-full text-left text-white py-3 border-b border-blue-800 hover:text-yellow-400 transition-colors duration-300"
+              >
+                Features
+              </button>
+              <button
+                onClick={() => scrollToSection("contact")}
+                className="block w-full text-left text-white py-3 border-b border-blue-800 hover:text-yellow-400 transition-colors duration-300"
+              >
+                Contact
+              </button>
+              <button
+                onClick={handleClerkSignIn}
+                className="block w-full text-left text-white py-3 hover:text-yellow-400 transition-colors duration-300"
+              >
+                Login
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
 
       {/* Hero Section */}
       <section
         id="hero"
-        className="bg-gradient-to-r from-blue-950 to-blue-600 text-white text-center py-40 px-5 mt-16"
+        className="bg-gradient-to-r from-blue-950 to-blue-600 text-white text-center py-20 sm:py-32 lg:py-40 px-4 sm:px-5 mt-16"
       >
         <div
           ref={setRef("hero-content")}
@@ -275,16 +354,16 @@ const LandingPage = () => {
             "hero-content"
           )}`}
         >
-          <h2 className="text-5xl font-bold mb-6 text-gray-800">
+          <h2 className="text-3xl sm:text-4xl lg:text-5xl font-bold mb-4 sm:mb-6 text-gray-800">
             Empowering Eldercare with AI
           </h2>
-          <p className="text-xl mb-12">
+          <p className="text-lg sm:text-xl mb-8 sm:mb-12 px-4">
             Smart assistance for safety, comfort, and care—right when it's
             needed.
           </p>
           <button
             onClick={handleClerkSignIn}
-            className="inline-block bg-yellow-400 text-blue-900 hover:text-blue-950 font-bold py-3 px-10 rounded-full cursor-pointer hover:bg-yellow-500 transition-colors duration-300 text-lg"
+            className="inline-block bg-yellow-400 text-blue-900 hover:text-blue-950 font-bold py-3 px-6 sm:px-10 rounded-full cursor-pointer hover:bg-yellow-500 transition-colors duration-300 text-base sm:text-lg"
           >
             Get Started
           </button>
@@ -292,17 +371,20 @@ const LandingPage = () => {
       </section>
 
       {/* Features Section */}
-      <section id="features" className="py-24 px-5 text-center bg-gray-50">
+      <section
+        id="features"
+        className="py-16 sm:py-20 lg:py-24 px-4 sm:px-5 text-center bg-gray-50"
+      >
         <h2
           ref={setRef("features-title")}
-          className={`text-4xl font-bold mb-16 text-gray-800 transition-all duration-1000 ${getAnimationClass(
+          className={`text-3xl sm:text-4xl font-bold mb-12 sm:mb-16 text-gray-800 transition-all duration-1000 ${getAnimationClass(
             "features-title"
           )}`}
         >
           Key Features
         </h2>
-        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-8 max-w-6xl mx-auto">
-          {/* Feature Cards - Updated with React Icons and fixed sizes */}
+        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-6 sm:gap-8 max-w-6xl mx-auto">
+          {/* Feature Cards */}
           {featureData.map((feature, index) => (
             <div
               key={index}
@@ -311,14 +393,16 @@ const LandingPage = () => {
                 index * 100
               } ${getAnimationClass(`feature-${index}`)}`}
             >
-              <div className="bg-white p-8 rounded-lg shadow-md hover:shadow-xl transition-all duration-300 transform hover:-translate-y-3 h-64 flex flex-col items-center">
+              <div className="bg-white p-6 sm:p-8 rounded-lg shadow-md hover:shadow-xl transition-all duration-300 transform hover:-translate-y-3 h-auto sm:h-64 flex flex-col items-center">
                 <div className="flex justify-center mb-4">
                   <div className="text-blue-500">{feature.icon}</div>
                 </div>
-                <h3 className="text-xl font-bold mb-3 text-blue-500">
+                <h3 className="text-lg sm:text-xl font-bold mb-3 text-blue-500">
                   {feature.title}
                 </h3>
-                <p className="text-gray-600">{feature.description}</p>
+                <p className="text-gray-600 text-sm sm:text-base">
+                  {feature.description}
+                </p>
               </div>
             </div>
           ))}
@@ -326,17 +410,19 @@ const LandingPage = () => {
       </section>
 
       {/* Contact Us Section */}
-      <section id="contact" className="py-24 px-5 bg-white text-center">
+      <section
+        id="contact"
+        className="py-16 sm:py-20 lg:py-24 px-4 sm:px-5 bg-white text-center"
+      >
         <h2
           ref={setRef("contact-title")}
-          className={`text-4xl font-bold mb-10 text-gray-800 transition-all duration-1000 ${getAnimationClass(
+          className={`text-3xl sm:text-4xl font-bold mb-8 sm:mb-10 text-gray-800 transition-all duration-1000 ${getAnimationClass(
             "contact-title"
           )}`}
         >
           Contact Us
         </h2>
-        <form
-          onSubmit={handleSubmit}
+        <div
           ref={setRef("contact-form")}
           className={`max-w-lg mx-auto flex flex-col gap-4 transition-all duration-1000 delay-200 ${getAnimationClass(
             "contact-form"
@@ -346,7 +432,7 @@ const LandingPage = () => {
             type="text"
             name="name"
             placeholder="Your Name"
-            className="w-full p-4 border border-gray-300 rounded-lg focus:border-blue-500 focus:outline-none"
+            className="w-full p-3 sm:p-4 border border-gray-300 rounded-lg focus:border-blue-500 focus:outline-none text-sm sm:text-base"
             value={formData.name}
             onChange={handleInputChange}
             required
@@ -355,7 +441,7 @@ const LandingPage = () => {
             type="email"
             name="email"
             placeholder="Your Email"
-            className="w-full p-4 border border-gray-300 rounded-lg focus:border-blue-500 focus:outline-none"
+            className="w-full p-3 sm:p-4 border border-gray-300 rounded-lg focus:border-blue-500 focus:outline-none text-sm sm:text-base"
             value={formData.email}
             onChange={handleInputChange}
             required
@@ -364,20 +450,20 @@ const LandingPage = () => {
             name="message"
             rows="5"
             placeholder="Your Message"
-            className="w-full p-4 border border-gray-300 rounded-lg focus:border-blue-500 focus:outline-none"
+            className="w-full p-3 sm:p-4 border border-gray-300 rounded-lg focus:border-blue-500 focus:outline-none text-sm sm:text-base"
             value={formData.message}
             onChange={handleInputChange}
             required
           ></textarea>
           <button
-            type="submit"
-            className="w-full bg-blue-950 text-white py-4 rounded-lg cursor-pointer hover:bg-blue-900 transition-colors duration-300 text-lg font-semibold"
+            onClick={handleSubmit}
+            className="w-full bg-blue-950 text-white py-3 sm:py-4 rounded-lg cursor-pointer hover:bg-blue-900 transition-colors duration-300 text-base sm:text-lg font-semibold"
           >
             Send Message
           </button>
 
           {formSubmitted && (
-            <div className="bg-green-100 border border-green-400 text-green-700 px-4 py-3 rounded relative animate-slide-in">
+            <div className="bg-green-100 border border-green-400 text-green-700 px-4 py-3 rounded relative animate-slide-in text-sm sm:text-base">
               <strong className="font-bold">Success!</strong>
               <span className="block sm:inline">
                 {" "}
@@ -385,19 +471,19 @@ const LandingPage = () => {
               </span>
             </div>
           )}
-        </form>
+        </div>
       </section>
 
       {/* Back to Top Button */}
       {showBackToTop && (
         <button
           onClick={scrollToTop}
-          className="fixed bottom-8 right-8 cursor-pointer bg-blue-950 text-white p-3 rounded-full shadow-lg hover:bg-blue-800 transition-colors duration-300"
+          className="fixed bottom-4 right-4 sm:bottom-8 sm:right-8 cursor-pointer bg-blue-950 text-white p-3 rounded-full shadow-lg hover:bg-blue-800 transition-colors duration-300 z-30"
           aria-label="Back to top"
         >
           <svg
             xmlns="http://www.w3.org/2000/svg"
-            className="h-6 w-6"
+            className="h-5 w-5 sm:h-6 sm:w-6"
             fill="none"
             viewBox="0 0 24 24"
             stroke="currentColor"
@@ -412,19 +498,18 @@ const LandingPage = () => {
         </button>
       )}
 
-      {/* Removed Clerk Animation Overlay */}
-
       {/* Footer */}
-      <footer className="bg-blue-950 text-white text-center py-4 text-sm">
-        <p>
-          © 2025 AI-SENSA. All rights reserved. |{" "}
+      <footer className="bg-blue-950 text-white text-center py-4 px-4 text-xs sm:text-sm">
+        <p className="flex flex-col sm:flex-row items-center justify-center gap-2">
+          <span>© 2025 AI-SENSA. All rights reserved.</span>
+          <span className="hidden sm:inline">|</span>
           <button
             onClick={() => alert("Privacy Policy")}
             className="text-yellow-400 hover:underline"
           >
             Privacy Policy
-          </button>{" "}
-          |{" "}
+          </button>
+          <span className="hidden sm:inline">|</span>
           <button
             onClick={() => alert("Terms of Use")}
             className="text-yellow-400 hover:underline"

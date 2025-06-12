@@ -108,6 +108,17 @@ const UserSchema = new mongoose.Schema({
     type: Boolean,
     default: true,
   },
+  pushSubscription: {
+    endpoint: String,
+    keys: {
+      p256dh: String,
+      auth: String,
+    },
+  },
+  notificationsEnabled: {
+    type: Boolean,
+    default: false,
+  },
   createdAt: {
     type: Date,
     default: Date.now,

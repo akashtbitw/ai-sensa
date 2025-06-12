@@ -26,6 +26,19 @@ const Settings = () => {
   const [showConfirmDialog, setShowConfirmDialog] = useState(false);
   const [confirmAction, setConfirmAction] = useState(null);
   const [hasChanges, setHasChanges] = useState(false);
+  const [showProfile, setShowProfile] = useState(false);
+  const [profileData, setProfileData] = useState({
+    name: "",
+    height: "",
+    weight: "",
+    age: "",
+    gender: "",
+    healthConditions: [],
+  });
+  const [originalProfileData, setOriginalProfileData] = useState({});
+  const [newHealthCondition, setNewHealthCondition] = useState("");
+  const [editingProfile, setEditingProfile] = useState(false);
+  const [profileHasChanges, setProfileHasChanges] = useState(false);
 
   // Fetch user profile data including caregivers set during onboarding
   useEffect(() => {
@@ -39,6 +52,24 @@ const Settings = () => {
 
         if (response.ok) {
           setUserData(data.user);
+          if (data.user) {
+            setProfileData({
+              name: data.user.name || "",
+              height: data.user.height || "",
+              weight: data.user.weight || "",
+              age: data.user.age || "",
+              gender: data.user.gender || "",
+              healthConditions: data.user.healthConditions || [],
+            });
+            setOriginalProfileData({
+              name: data.user.name || "",
+              height: data.user.height || "",
+              weight: data.user.weight || "",
+              age: data.user.age || "",
+              gender: data.user.gender || "",
+              healthConditions: [...(data.user.healthConditions || [])],
+            });
+          }
           // Make sure we're correctly accessing the caregivers from the API response
           if (data.user && Array.isArray(data.user.caregivers)) {
             setCaregivers(data.user.caregivers);
@@ -75,6 +106,115 @@ const Settings = () => {
       JSON.stringify(caregivers) !== JSON.stringify(originalCaregivers);
     setHasChanges(caregiverChanged);
   }, [caregivers, originalCaregivers]);
+
+  useEffect(() => {
+    if (!originalProfileData.name) return;
+
+    const profileChanged =
+      JSON.stringify(profileData) !== JSON.stringify(originalProfileData);
+    setProfileHasChanges(profileChanged);
+  }, [profileData, originalProfileData]);
+
+  const handleProfileChange = (field, value) => {
+    setProfileData((prev) => ({
+      ...prev,
+      [field]: value,
+    }));
+  };
+
+  const addHealthCondition = () => {
+    if (newHealthCondition.trim()) {
+      const condition = newHealthCondition.trim();
+      if (!profileData.healthConditions.includes(condition)) {
+        setProfileData((prev) => ({
+          ...prev,
+          healthConditions: [...prev.healthConditions, condition],
+        }));
+        setNewHealthCondition("");
+      } else {
+        toast.error("This health condition is already added");
+      }
+    }
+  };
+
+  const removeHealthCondition = (index) => {
+    setProfileData((prev) => ({
+      ...prev,
+      healthConditions: prev.healthConditions.filter((_, i) => i !== index),
+    }));
+  };
+
+  const startEditingProfile = () => {
+    setEditingProfile(true);
+    toast.info("Now editing profile information");
+  };
+
+  const cancelEditingProfile = () => {
+    setEditingProfile(false);
+    setProfileData({ ...originalProfileData });
+    setNewHealthCondition("");
+  };
+
+  const saveProfileChanges = async () => {
+    try {
+      // Basic validation
+      if (
+        !profileData.name.trim() ||
+        !profileData.height ||
+        !profileData.weight ||
+        !profileData.age ||
+        !profileData.gender
+      ) {
+        setError("All profile fields are required");
+        return;
+      }
+
+      if (
+        profileData.height <= 0 ||
+        profileData.weight <= 0 ||
+        profileData.age <= 0
+      ) {
+        setError("Height, weight, and age must be positive numbers");
+        return;
+      }
+
+      setIsSaving(true);
+      setError("");
+
+      const response = await fetch(`${API_URL}/api/users/profile`, {
+        method: "PUT",
+        headers: {
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({
+          userId: user?.id,
+          name: profileData.name.trim(),
+          height: Number(profileData.height),
+          weight: Number(profileData.weight),
+          age: Number(profileData.age),
+          gender: profileData.gender,
+          healthConditions: profileData.healthConditions,
+        }),
+      });
+
+      const data = await response.json();
+
+      if (!response.ok) {
+        throw new Error(data.message || "Failed to save profile data");
+      }
+
+      toast.success("Profile updated successfully");
+      setEditingProfile(false);
+      setOriginalProfileData({ ...profileData });
+      setProfileHasChanges(false);
+    } catch (error) {
+      console.error("Error saving profile:", error);
+      setError(error.message || "An error occurred while saving changes");
+      toast.error("Failed to save changes");
+    } finally {
+      setIsSaving(false);
+    }
+  };
 
   // Handle input changes for caregiver fields
   const handleCaregiverChange = (index, field, value) => {
@@ -323,6 +463,274 @@ const Settings = () => {
   return (
     <div className="max-w-4xl mx-auto bg-white rounded-lg shadow p-6">
       <h1 className="text-2xl font-bold text-gray-800 mb-6">Settings</h1>
+
+      <div className="mb-8">
+        <button
+          onClick={() => setShowProfile(!showProfile)}
+          className="bg-green-600 text-white py-2 px-4 rounded cursor-pointer hover:bg-green-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-green-500 mb-4 flex items-center"
+        >
+          {showProfile ? (
+            <>
+              <ChevronUp className="h-5 w-5 mr-1" /> Hide Profile Settings
+            </>
+          ) : (
+            <>
+              <ChevronDown className="h-5 w-5 mr-1" /> Edit Profile
+            </>
+          )}
+        </button>
+
+        {showProfile && (
+          <div>
+            <p className="text-gray-600 mb-4">
+              Update your basic profile information.
+            </p>
+
+            <div className="mb-6 p-4 border border-gray-200 rounded-lg bg-gray-50">
+              <div className="flex justify-between items-center mb-3">
+                <h3 className="text-lg font-medium">Profile Information</h3>
+                <div className="flex space-x-2">
+                  {editingProfile ? (
+                    <button
+                      type="button"
+                      onClick={cancelEditingProfile}
+                      className="text-gray-500 cursor-pointer hover:text-gray-700 flex items-center"
+                    >
+                      <X className="h-4 w-4 mr-1" /> Cancel
+                    </button>
+                  ) : (
+                    <button
+                      type="button"
+                      onClick={startEditingProfile}
+                      className="text-blue-500 cursor-pointer hover:text-blue-700 flex items-center"
+                    >
+                      <Edit className="h-4 w-4 mr-1" /> Edit
+                    </button>
+                  )}
+                </div>
+              </div>
+
+              {editingProfile ? (
+                <div className="space-y-4">
+                  <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                    <div>
+                      <label className="block text-gray-700 text-sm font-medium mb-1">
+                        Name <span className="text-red-500">*</span>
+                      </label>
+                      <input
+                        type="text"
+                        value={profileData.name}
+                        onChange={(e) =>
+                          handleProfileChange("name", e.target.value)
+                        }
+                        className="w-full p-2 border border-gray-300 rounded focus:border-blue-500 focus:ring focus:ring-blue-200"
+                        placeholder="Your full name"
+                      />
+                    </div>
+
+                    <div>
+                      <label className="block text-gray-700 text-sm font-medium mb-1">
+                        Age <span className="text-red-500">*</span>
+                      </label>
+                      <input
+                        type="number"
+                        value={profileData.age}
+                        onChange={(e) =>
+                          handleProfileChange("age", e.target.value)
+                        }
+                        className="w-full p-2 border border-gray-300 rounded focus:border-blue-500 focus:ring focus:ring-blue-200"
+                        placeholder="Your age"
+                        min="1"
+                        max="120"
+                      />
+                    </div>
+
+                    <div>
+                      <label className="block text-gray-700 text-sm font-medium mb-1">
+                        Height (cm) <span className="text-red-500">*</span>
+                      </label>
+                      <input
+                        type="number"
+                        value={profileData.height}
+                        onChange={(e) =>
+                          handleProfileChange("height", e.target.value)
+                        }
+                        className="w-full p-2 border border-gray-300 rounded focus:border-blue-500 focus:ring focus:ring-blue-200"
+                        placeholder="Height in centimeters"
+                        min="1"
+                        max="300"
+                      />
+                    </div>
+
+                    <div>
+                      <label className="block text-gray-700 text-sm font-medium mb-1">
+                        Weight (kg) <span className="text-red-500">*</span>
+                      </label>
+                      <input
+                        type="number"
+                        value={profileData.weight}
+                        onChange={(e) =>
+                          handleProfileChange("weight", e.target.value)
+                        }
+                        className="w-full p-2 border border-gray-300 rounded focus:border-blue-500 focus:ring focus:ring-blue-200"
+                        placeholder="Weight in kilograms"
+                        min="1"
+                        max="500"
+                      />
+                    </div>
+
+                    <div className="md:col-span-2">
+                      <label className="block text-gray-700 text-sm font-medium mb-1">
+                        Gender <span className="text-red-500">*</span>
+                      </label>
+                      <select
+                        value={profileData.gender}
+                        onChange={(e) =>
+                          handleProfileChange("gender", e.target.value)
+                        }
+                        className="w-full p-2 border border-gray-300 rounded focus:border-blue-500 focus:ring focus:ring-blue-200"
+                      >
+                        <option value="Male">Male</option>
+                        <option value="Female">Female</option>
+                        <option value="Other">Other</option>
+                      </select>
+                    </div>
+                  </div>
+
+                  <div>
+                    <label className="block text-gray-700 text-sm font-medium mb-2">
+                      Health Conditions (if any)
+                    </label>
+
+                    {/* Input for new health condition */}
+                    <div className="flex gap-2 mb-3">
+                      <input
+                        type="text"
+                        value={newHealthCondition}
+                        onChange={(e) => setNewHealthCondition(e.target.value)}
+                        className="flex-1 p-2 border border-gray-300 rounded focus:border-blue-500 focus:ring focus:ring-blue-200"
+                        placeholder="E.g., Diabetes, Hypertension, etc."
+                        onKeyPress={(e) => {
+                          if (e.key === "Enter") {
+                            e.preventDefault();
+                            addHealthCondition();
+                          }
+                        }}
+                      />
+                      <button
+                        type="button"
+                        onClick={addHealthCondition}
+                        disabled={!newHealthCondition.trim()}
+                        className={`px-4 py-2 rounded font-medium ${
+                          newHealthCondition.trim()
+                            ? "bg-blue-500 text-white hover:bg-blue-600 cursor-pointer"
+                            : "bg-gray-300 text-gray-500 cursor-not-allowed"
+                        }`}
+                      >
+                        Add
+                      </button>
+                    </div>
+
+                    {/* Display added health conditions */}
+                    {profileData.healthConditions.length > 0 && (
+                      <div className="flex flex-wrap gap-2">
+                        {profileData.healthConditions.map(
+                          (condition, index) => (
+                            <div
+                              key={index}
+                              className="flex items-center bg-blue-100 text-blue-800 px-3 py-1 rounded-full text-sm"
+                            >
+                              <span>{condition}</span>
+                              <button
+                                type="button"
+                                onClick={() => removeHealthCondition(index)}
+                                className="ml-2 text-blue-600 hover:text-blue-800 cursor-pointer"
+                              >
+                                ×
+                              </button>
+                            </div>
+                          )
+                        )}
+                      </div>
+                    )}
+                  </div>
+                </div>
+              ) : (
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                  <div>
+                    <p className="text-sm text-gray-500">Name</p>
+                    <p className="font-medium">{profileData.name}</p>
+                  </div>
+                  <div>
+                    <p className="text-sm text-gray-500">Age</p>
+                    <p className="font-medium">{profileData.age} years</p>
+                  </div>
+                  <div>
+                    <p className="text-sm text-gray-500">Height</p>
+                    <p className="font-medium">{profileData.height} cm</p>
+                  </div>
+                  <div>
+                    <p className="text-sm text-gray-500">Weight</p>
+                    <p className="font-medium">{profileData.weight} kg</p>
+                  </div>
+                  <div>
+                    <p className="text-sm text-gray-500">Gender</p>
+                    <p className="font-medium">{profileData.gender}</p>
+                  </div>
+                  <div className="md:col-span-2">
+                    <p className="text-sm text-gray-500">Health Conditions</p>
+                    {profileData.healthConditions.length > 0 ? (
+                      <div className="flex flex-wrap gap-2 mt-1">
+                        {profileData.healthConditions.map(
+                          (condition, index) => (
+                            <span
+                              key={index}
+                              className="bg-gray-100 text-gray-800 px-2 py-1 rounded text-sm"
+                            >
+                              {condition}
+                            </span>
+                          )
+                        )}
+                      </div>
+                    ) : (
+                      <p className="font-medium text-gray-500">
+                        None specified
+                      </p>
+                    )}
+                  </div>
+                </div>
+              )}
+
+              {editingProfile && (
+                <div className="flex justify-end mt-4">
+                  <button
+                    type="button"
+                    onClick={saveProfileChanges}
+                    disabled={isSaving || !profileHasChanges}
+                    className={`flex items-center py-2 px-4 rounded focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-blue-500 ${
+                      profileHasChanges
+                        ? "bg-blue-600 text-white hover:bg-blue-700 cursor-pointer"
+                        : "bg-gray-300 text-gray-500 cursor-not-allowed"
+                    }`}
+                  >
+                    {isSaving ? (
+                      <>
+                        <Loader className="animate-spin h-4 w-4 mr-2" />
+                        Saving...
+                      </>
+                    ) : (
+                      <>
+                        <Save className="h-4 w-4 mr-1" />
+                        Save Changes
+                      </>
+                    )}
+                  </button>
+                </div>
+              )}
+            </div>
+          </div>
+        )}
+      </div>
 
       <div className="mb-8">
         <button

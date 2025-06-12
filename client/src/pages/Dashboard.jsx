@@ -1,6 +1,7 @@
 import { useState, useEffect } from "react";
 import { useNavigate } from "react-router-dom";
 import { useUser } from "@clerk/clerk-react";
+import NotificationPermission from "../components/NotificationPermission";
 import {
   HeartPulse,
   Activity,
@@ -75,6 +76,9 @@ const Dashboard = () => {
   const [showReminderHistory, setShowReminderHistory] = useState(false);
   const [reminderHistory, setReminderHistory] = useState([]);
   const [reminderIntervals, setReminderIntervals] = useState([]);
+  const [showNotificationPermission, setShowNotificationPermission] =
+    useState(false);
+  const [notificationsEnabled, setNotificationsEnabled] = useState(false);
   const [notifications] = useState([
     {
       id: 1,
@@ -285,6 +289,47 @@ const Dashboard = () => {
     };
   }, [activeReminders, reminderHistory]);
 
+  // Add this useEffect to check notification status on component mount
+  useEffect(() => {
+    const checkNotificationStatus = async () => {
+      if ("Notification" in window && Notification.permission === "granted") {
+        // Check if user has an active subscription
+        try {
+          const registration = await navigator.serviceWorker.getRegistration();
+          if (registration) {
+            const subscription =
+              await registration.pushManager.getSubscription();
+            setNotificationsEnabled(!!subscription);
+          }
+        } catch (error) {
+          console.error("Error checking notification status:", error);
+        }
+      }
+    };
+
+    checkNotificationStatus();
+  }, []);
+
+  // Add this useEffect to show notification permission prompt for new users
+  useEffect(() => {
+    const hasAskedForPermission = localStorage.getItem(
+      "hasAskedForNotificationPermission"
+    );
+
+    if (
+      !hasAskedForPermission &&
+      userData?.medications &&
+      userData?.medications.length > 0
+    ) {
+      // Show permission request after 3 seconds if user has medications
+      const timer = setTimeout(() => {
+        setShowNotificationPermission(true);
+      }, 3000);
+
+      return () => clearTimeout(timer);
+    }
+  }, [userData?.medications]);
+
   useEffect(() => {
     const timer = setInterval(() => {
       setCurrentTime(new Date());
@@ -387,13 +432,15 @@ const Dashboard = () => {
   };
 
   // 3. Add this function to show medication reminder
-  const showMedicationReminder = (medication, time, reminderKey) => {
-    // Play notification sound
+  // Updated showMedicationReminder function
+  const showMedicationReminder = async (medication, time, reminderKey) => {
+    // Play notification sound (existing code)
     const audio = new Audio(
       "data:audio/wav;base64,UklGRnoGAABXQVZFZm10IBAAAAABAAEAQB8AAEAfAAABAAgAZGF0YQoGAACBhYqFbF1fdJivrJBhNjVgodDbq2EcBj+a2/LDciUFLIHO8tiJNwgZaLvt559NEAxQp+PwtmMcBjiR1/LMeSwFJHfH8N2QQAoUXrTp66hVFApGn+DyvmUgAzON2vLCayEsAA=="
     );
     audio.play().catch((e) => console.log("Audio play failed:", e));
 
+    // Show in-app notification (existing code)
     const newReminder = {
       key: reminderKey,
       medication,
@@ -404,7 +451,7 @@ const Dashboard = () => {
 
     setActiveReminders((prev) => [...prev, newReminder]);
 
-    // Add to history
+    // Add to history (existing code)
     const historyItem = {
       ...newReminder,
       status: "active",
@@ -418,6 +465,49 @@ const Dashboard = () => {
       );
       return updatedHistory;
     });
+
+    // Send push notification if enabled
+    if (notificationsEnabled) {
+      try {
+        const bodyMessage = [
+          `Time to take ${medication.name} (${medication.dosage}mg)`,
+          `Take ${medication.beforeAfterMeal}`,
+          `Scheduled for: ${time}`,
+        ].join("\n");
+
+        // Create a unique tag for this specific medication reminder
+        const uniqueTag = `medication-${
+          medication.name
+        }-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`;
+
+        await fetch(`${API_URL}/api/notifications/send`, {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json",
+          },
+          body: JSON.stringify({
+            userId: userData.userId,
+            title: "💊 Medication Reminder",
+            body: bodyMessage,
+            tag: uniqueTag, // Pass the unique tag
+            data: {
+              type: "medication",
+              medication: medication,
+              time: time,
+              reminderId: newReminder.id, // Include reminder ID for tracking
+            },
+          }),
+        });
+      } catch (error) {
+        console.error("Error sending push notification:", error);
+      }
+    }
+  };
+
+  const handleNotificationPermission = (granted) => {
+    localStorage.setItem("hasAskedForNotificationPermission", "true");
+    setNotificationsEnabled(granted);
+    setShowNotificationPermission(false);
   };
 
   const handleReminderDismiss = (reminderId) => {
@@ -438,7 +528,6 @@ const Dashboard = () => {
     });
   };
 
-  // 4. Add this function to handle reminder acknowledgment
   const handleReminderAcknowledge = (reminderId) => {
     // Remove from active reminders
     setActiveReminders((prev) => prev.filter((r) => r.id !== reminderId));
@@ -982,16 +1071,15 @@ const Dashboard = () => {
                     </span>
                   </div>
                 </div>
+
                 <div className="mt-4 p-3 bg-yellow-50 rounded-lg border-l-4 border-yellow-400 flex-shrink-0">
                   <div className="text-sm text-yellow-800 font-semibold mb-2">
                     Health Conditions:
                   </div>
                   {userData.healthConditions &&
                     userData.healthConditions.length > 0 && (
-                      <div className="text-sm text-yellow-700 leading-relaxed overflow-hidden">
-                        <div className="line-clamp-2">
-                          {userData.healthConditions.join(", ")}
-                        </div>
+                      <div className="text-sm text-yellow-700 leading-relaxed max-h-12 overflow-y-auto scrollbar-thin scrollbar-thumb-yellow-400 scrollbar-track-yellow-100">
+                        {userData.healthConditions.join(", ")}
                       </div>
                     )}
                 </div>
@@ -1632,6 +1720,12 @@ const Dashboard = () => {
                 </button>
               </div>
             </div>
+          )}
+          {showNotificationPermission && (
+            <NotificationPermission
+              userId={userData.userId} // Make sure you have userId available
+              onClose={handleNotificationPermission}
+            />
           )}
         </div>
 
