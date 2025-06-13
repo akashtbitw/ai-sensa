@@ -215,20 +215,48 @@ router.get("/profile/:userId", async (req, res) => {
 
 router.put("/profile", async (req, res) => {
   try {
-    const { userId, name, height, weight, age, gender, healthConditions } =
-      req.body;
+    const {
+      userId,
+      name,
+      height,
+      weight,
+      age,
+      gender,
+      healthConditions,
+      normalHeartRate,
+      normalBP,
+      normalSpO2,
+    } = req.body;
 
-    // Basic validation
-    if (!userId || !name || !height || !weight || !age || !gender) {
+    // Basic validation - update the validation check
+    if (
+      !userId ||
+      !name ||
+      !height ||
+      !weight ||
+      !age ||
+      !gender ||
+      !normalHeartRate ||
+      !normalBP ||
+      !normalSpO2
+    ) {
       return res
         .status(400)
         .json({ message: "All profile fields are required" });
     }
 
-    // Validate numeric fields
-    if (height <= 0 || weight <= 0 || age <= 0) {
+    // Validate numeric fields - update validation
+    if (
+      height <= 0 ||
+      weight <= 0 ||
+      age <= 0 ||
+      normalHeartRate <= 0 ||
+      normalSpO2 <= 0 ||
+      normalSpO2 > 100
+    ) {
       return res.status(400).json({
-        message: "Height, weight, and age must be positive numbers",
+        message:
+          "Height, weight, age, and vital signs must be valid positive numbers",
       });
     }
 
@@ -238,13 +266,16 @@ router.put("/profile", async (req, res) => {
       return res.status(404).json({ message: "User not found" });
     }
 
-    // Update profile fields
+    // Update profile fields - add the new fields
     user.name = name.trim();
     user.height = Number(height);
     user.weight = Number(weight);
     user.age = Number(age);
     user.gender = gender;
     user.healthConditions = healthConditions || [];
+    user.normalHeartRate = Number(normalHeartRate);
+    user.normalBP = normalBP;
+    user.normalSpO2 = Number(normalSpO2);
 
     await user.save();
 
@@ -258,6 +289,9 @@ router.put("/profile", async (req, res) => {
         age: user.age,
         gender: user.gender,
         healthConditions: user.healthConditions,
+        normalHeartRate: user.normalHeartRate,
+        normalBP: user.normalBP,
+        normalSpO2: user.normalSpO2,
       },
     });
   } catch (error) {

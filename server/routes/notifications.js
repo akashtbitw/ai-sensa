@@ -81,6 +81,121 @@ router.post("/send", async (req, res) => {
   }
 });
 
+// Get all notifications for a user
+router.get("/:userId", async (req, res) => {
+  try {
+    const { userId } = req.params;
+    const { limit = 20, page = 1 } = req.query;
+
+    const user = await User.findOne({ userId });
+    if (!user) {
+      return res.status(404).json({ message: "User not found" });
+    }
+
+    // Sort notifications by creation date (newest first)
+    const sortedNotifications = user.notifications
+      .sort((a, b) => new Date(b.createdAt) - new Date(a.createdAt))
+      .slice(0, parseInt(limit));
+
+    return res.status(200).json({
+      notifications: sortedNotifications,
+      totalCount: user.notifications.length,
+      unreadCount: user.getUnreadNotificationsCount(),
+    });
+  } catch (error) {
+    console.error("Error fetching notifications:", error);
+    return res.status(500).json({ message: "Failed to fetch notifications" });
+  }
+});
+
+// Mark a specific notification as read
+router.put("/:userId/:notificationId/read", async (req, res) => {
+  try {
+    const { userId, notificationId } = req.params;
+
+    const user = await User.findOne({ userId });
+    if (!user) {
+      return res.status(404).json({ message: "User not found" });
+    }
+
+    const notification = user.notifications.id(notificationId);
+    if (!notification) {
+      return res.status(404).json({ message: "Notification not found" });
+    }
+
+    if (!notification.read) {
+      notification.read = true;
+      notification.readAt = new Date();
+      await user.save();
+    }
+
+    return res.status(200).json({
+      message: "Notification marked as read",
+      notification,
+    });
+  } catch (error) {
+    console.error("Error marking notification as read:", error);
+    return res.status(500).json({ message: "Failed to update notification" });
+  }
+});
+
+// Mark all notifications as read for a user
+router.put("/:userId/read-all", async (req, res) => {
+  try {
+    const { userId } = req.params;
+
+    const user = await User.findOne({ userId });
+    if (!user) {
+      return res.status(404).json({ message: "User not found" });
+    }
+
+    // Mark all unread notifications as read
+    user.notifications.forEach((notification) => {
+      if (!notification.read) {
+        notification.read = true;
+        notification.readAt = new Date();
+      }
+    });
+
+    await user.save();
+
+    return res.status(200).json({
+      message: "All notifications marked as read",
+      unreadCount: 0,
+    });
+  } catch (error) {
+    console.error("Error marking all notifications as read:", error);
+    return res.status(500).json({ message: "Failed to update notifications" });
+  }
+});
+
+// Delete a specific notification
+router.delete("/:userId/:notificationId", async (req, res) => {
+  try {
+    const { userId, notificationId } = req.params;
+
+    const user = await User.findOne({ userId });
+    if (!user) {
+      return res.status(404).json({ message: "User not found" });
+    }
+
+    const notification = user.notifications.id(notificationId);
+    if (!notification) {
+      return res.status(404).json({ message: "Notification not found" });
+    }
+
+    user.notifications.pull(notificationId);
+    await user.save();
+
+    return res.status(200).json({
+      message: "Notification deleted successfully",
+    });
+  } catch (error) {
+    console.error("Error deleting notification:", error);
+    return res.status(500).json({ message: "Failed to delete notification" });
+  }
+});
+
 // Function to send medication reminder (can be called from other parts of your app)
 const sendMedicationReminder = async (userId, medication, time) => {
   try {

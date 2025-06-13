@@ -138,6 +138,21 @@ async function sendAlert(userId, vitalSign, value, details = {}) {
   }
 }
 
+// Function to add notification to user's database
+async function addNotificationToUser(userId, title, body, type) {
+  try {
+    const user = await User.findOne({ userId });
+    if (user) {
+      await user.addNotification(title, body, type);
+      console.log(`Added ${type} notification for user ${userId}`);
+    } else {
+      console.log(`User ${userId} not found for notification`);
+    }
+  } catch (err) {
+    console.error("Error adding notification to user:", err);
+  }
+}
+
 function simulateHeartRate(
   userId,
   baseHeartRate = 75,
@@ -377,6 +392,23 @@ function simulateFallDetection(userId, probability = 5, interval = 60000) {
 
         await newFall.save();
         console.log(`Recorded fall: ${chosenSeverity} severity in ${location}`);
+
+        // Add emergency_alert notification for all falls
+        const notificationTitle = `Fall Detected - ${
+          chosenSeverity.charAt(0).toUpperCase() + chosenSeverity.slice(1)
+        } Severity`;
+        const notificationBody = `A ${chosenSeverity} severity fall has been detected in the ${location}. ${
+          chosenSeverity === "high"
+            ? "Immediate assistance may be required."
+            : "Please check on the patient."
+        }`;
+
+        await addNotificationToUser(
+          userId,
+          notificationTitle,
+          notificationBody,
+          "emergency_alert"
+        );
 
         // Send alert only for high severity falls
         if (chosenSeverity === "high") {

@@ -52,6 +52,44 @@ const MedicationSchema = new mongoose.Schema(
   { _id: true }
 );
 
+const NotificationSchema = new mongoose.Schema(
+  {
+    title: {
+      type: String,
+      required: true,
+    },
+    body: {
+      type: String,
+      required: true,
+    },
+    type: {
+      type: String,
+      enum: [
+        "critical_health_condition",
+        "health_report",
+        "medication_reminder",
+        "appointment_reminder",
+        "emergency_alert",
+      ],
+      required: true,
+    },
+    read: {
+      type: Boolean,
+      default: false,
+    },
+    createdAt: {
+      type: Date,
+      default: Date.now,
+      expires: "3d",
+    },
+    readAt: {
+      type: Date,
+      default: null,
+    },
+  },
+  { _id: true }
+);
+
 const UserSchema = new mongoose.Schema({
   userId: {
     type: String,
@@ -104,6 +142,10 @@ const UserSchema = new mongoose.Schema({
     type: [CaregiverSchema],
     default: [],
   },
+  notifications: {
+    type: [NotificationSchema],
+    default: [],
+  },
   onboardingCompleted: {
     type: Boolean,
     default: true,
@@ -134,5 +176,33 @@ UserSchema.pre("save", function (next) {
   this.updatedAt = Date.now();
   next();
 });
+
+// Add method to mark notification as read
+UserSchema.methods.markNotificationAsRead = function (notificationId) {
+  const notification = this.notifications.id(notificationId);
+  if (notification && !notification.read) {
+    notification.read = true;
+    notification.readAt = new Date();
+    return this.save();
+  }
+  return Promise.resolve(this);
+};
+
+// Add method to get unread notifications count
+UserSchema.methods.getUnreadNotificationsCount = function () {
+  return this.notifications.filter((notification) => !notification.read).length;
+};
+
+// Add method to add new notification
+UserSchema.methods.addNotification = function (title, body, type) {
+  this.notifications.push({
+    title,
+    body,
+    type,
+    read: false,
+    createdAt: new Date(),
+  });
+  return this.save();
+};
 
 module.exports = mongoose.model("User", UserSchema);
