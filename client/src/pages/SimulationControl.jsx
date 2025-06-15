@@ -17,20 +17,16 @@ function SimulationControl() {
 
   // Simulation config states
   const [heartRateConfig, setHeartRateConfig] = useState({
-    baseHeartRate: 75,
     variance: 10,
     interval: 10,
   });
 
   const [bloodPressureConfig, setBloodPressureConfig] = useState({
-    baseSystolic: 120,
-    baseDiastolic: 80,
     variance: 10,
     interval: 10,
   });
 
   const [spo2Config, setSpo2Config] = useState({
-    baseLevel: 97,
     variance: 2,
     interval: 15,
   });
@@ -282,25 +278,6 @@ function SimulationControl() {
           <div className="space-y-4">
             <div>
               <label className="block text-sm font-medium text-gray-700 mb-1">
-                Base Heart Rate (BPM)
-              </label>
-              <input
-                type="number"
-                value={heartRateConfig.baseHeartRate}
-                onChange={(e) =>
-                  setHeartRateConfig({
-                    ...heartRateConfig,
-                    baseHeartRate: e.target.value,
-                  })
-                }
-                min="40"
-                max="180"
-                className="w-full px-3 py-2 border border-gray-300 rounded-md shadow-sm focus:outline-none focus:ring-blue-500 focus:border-blue-500"
-              />
-            </div>
-
-            <div>
-              <label className="block text-sm font-medium text-gray-700 mb-1">
                 Variance (±BPM)
               </label>
               <input
@@ -369,44 +346,6 @@ function SimulationControl() {
           <div className="space-y-4">
             <div>
               <label className="block text-sm font-medium text-gray-700 mb-1">
-                Base Systolic (mmHg)
-              </label>
-              <input
-                type="number"
-                value={bloodPressureConfig.baseSystolic}
-                onChange={(e) =>
-                  setBloodPressureConfig({
-                    ...bloodPressureConfig,
-                    baseSystolic: e.target.value,
-                  })
-                }
-                min="90"
-                max="180"
-                className="w-full px-3 py-2 border border-gray-300 rounded-md shadow-sm focus:outline-none focus:ring-blue-500 focus:border-blue-500"
-              />
-            </div>
-
-            <div>
-              <label className="block text-sm font-medium text-gray-700 mb-1">
-                Base Diastolic (mmHg)
-              </label>
-              <input
-                type="number"
-                value={bloodPressureConfig.baseDiastolic}
-                onChange={(e) =>
-                  setBloodPressureConfig({
-                    ...bloodPressureConfig,
-                    baseDiastolic: e.target.value,
-                  })
-                }
-                min="60"
-                max="120"
-                className="w-full px-3 py-2 border border-gray-300 rounded-md shadow-sm focus:outline-none focus:ring-blue-500 focus:border-blue-500"
-              />
-            </div>
-
-            <div>
-              <label className="block text-sm font-medium text-gray-700 mb-1">
                 Variance (±mmHg)
               </label>
               <input
@@ -473,25 +412,6 @@ function SimulationControl() {
           </div>
 
           <div className="space-y-4">
-            <div>
-              <label className="block text-sm font-medium text-gray-700 mb-1">
-                Base SpO2 Level (%)
-              </label>
-              <input
-                type="number"
-                value={spo2Config.baseLevel}
-                onChange={(e) =>
-                  setSpo2Config({
-                    ...spo2Config,
-                    baseLevel: e.target.value,
-                  })
-                }
-                min="85"
-                max="100"
-                className="w-full px-3 py-2 border border-gray-300 rounded-md shadow-sm focus:outline-none focus:ring-blue-500 focus:border-blue-500"
-              />
-            </div>
-
             <div>
               <label className="block text-sm font-medium text-gray-700 mb-1">
                 Variance (±%)

@@ -1,4 +1,5 @@
 // server/utils/vitalSignsSimulator.js
+const MarkdownIt = require("markdown-it");
 const HeartRate = require("../models/HeartRate");
 const BloodPressure = require("../models/BloodPressure");
 const SpO2 = require("../models/SpO2");
@@ -7,6 +8,8 @@ const nodemailer = require("nodemailer");
 const dotenv = require("dotenv");
 const User = require("../models/User");
 dotenv.config();
+const criticalAlertsBuffer = new Map();
+const BUFFER_DELAY = 30000;
 
 // Email configuration
 const transporter = nodemailer.createTransport({
@@ -33,152 +36,524 @@ const THRESHOLDS = {
     LOW: 92, // Below this indicates potential hypoxemia
   },
 };
+function formatContent(text) {
+  // Configure markdown-it for your specific needs
+  const md = new MarkdownIt({
+    html: true, // Allow HTML tags in source
+    breaks: true, // Convert '\n' in paragraphs into <br>
+    linkify: false, // Don't auto-convert URLs (not needed for medical text)
+    typographer: false, // Don't do smart quotes/dashes (keep medical text as-is)
+  });
 
-// Function to send email alerts
-async function sendAlert(userId, vitalSign, value, details = {}) {
+  // Custom renderer for strong tags to handle both ** and ***
+  md.renderer.rules.strong_open = () => "<strong>";
+  md.renderer.rules.strong_close = () => "</strong>";
+
+  // Custom renderer to add better spacing
+  md.renderer.rules.paragraph_open = () => {
+    return '<p style="margin-bottom: 16px; line-height: 1.6;">';
+  };
+
+  // Add spacing to lists
+  md.renderer.rules.bullet_list_open = () => {
+    return '<ul style="margin: 12px 0; padding-left: 24px;">';
+  };
+
+  // Add spacing to list items
+  md.renderer.rules.list_item_open = () => {
+    return '<li style="margin-bottom: 8px; line-height: 1.5;">';
+  };
+
+  // Process the text
+  let htmlText = md.render(text);
+
+  // Add extra spacing around major sections
+  htmlText = htmlText.replace(
+    /<p style="margin-bottom: 16px; line-height: 1.6;"><strong>([^<]+)<\/strong><\/p>/g,
+    '<div style="margin: 24px 0 16px 0;"><h3 style="margin: 0; font-weight: bold; font-size: 1.1em; color: #2c3e50;">$1</h3></div>'
+  );
+
+  // For plain text, strip HTML tags and add proper spacing
+  const plainText = htmlText
+    .replace(/<[^>]*>/g, "") // Remove HTML tags
+    .replace(/&nbsp;/g, " ") // Replace HTML entities
+    .replace(/&amp;/g, "&")
+    .replace(/&lt;/g, "<")
+    .replace(/&gt;/g, ">")
+    .replace(/&quot;/g, '"')
+    .replace(/\n\s*\n\s*\n/g, "\n\n") // Normalize multiple line breaks
+    .trim();
+
+  return {
+    plainText: plainText,
+    htmlText: htmlText.trim(),
+  };
+}
+
+// Function to parse normal BP string to numeric values
+function parseNormalBP(normalBP) {
+  const [systolic, diastolic] = normalBP.split("/").map(Number);
+  return { systolic, diastolic };
+}
+
+// Function to determine if vital signs are critical based on user's normal values
+function isVitalCritical(vitalType, currentValue, userData, details = {}) {
+  switch (vitalType) {
+    case "Heart Rate":
+      const normalHR = userData.normalHeartRate;
+      const hrDeviation = Math.abs(currentValue - normalHR);
+      const hrDeviationPercent = (hrDeviation / normalHR) * 100;
+
+      // Critical if more than 30% deviation from normal OR beyond medical thresholds
+      return (
+        hrDeviationPercent > 3 ||
+        currentValue < THRESHOLDS.HEART_RATE.LOW ||
+        currentValue > THRESHOLDS.HEART_RATE.HIGH
+      );
+
+    case "Blood Pressure":
+      const { systolic: normalSys, diastolic: normalDia } = parseNormalBP(
+        userData.normalBP
+      );
+      const sysDeviation = Math.abs(details.systolic - normalSys);
+      const diaDeviation = Math.abs(details.diastolic - normalDia);
+
+      // Critical if significant deviation from normal OR beyond medical thresholds
+      return (
+        sysDeviation > 2 ||
+        diaDeviation > 1 ||
+        details.systolic > THRESHOLDS.BLOOD_PRESSURE.SYSTOLIC_HIGH ||
+        details.systolic < THRESHOLDS.BLOOD_PRESSURE.SYSTOLIC_LOW ||
+        details.diastolic > THRESHOLDS.BLOOD_PRESSURE.DIASTOLIC_HIGH ||
+        details.diastolic < THRESHOLDS.BLOOD_PRESSURE.DIASTOLIC_LOW
+      );
+
+    case "SpO2":
+      const normalSpO2 = userData.normalSpO2;
+      const o2Deviation = normalSpO2 - currentValue;
+
+      // Critical if 3% or more below normal OR below medical threshold
+      return o2Deviation >= 3 || currentValue < THRESHOLDS.SPO2.LOW;
+
+    default:
+      return false;
+  }
+}
+async function generateCombinedContent(userData, alerts) {
   try {
-    // Fetch the user document to get caregivers' emails
+    const { generateCriticalHealthContent } = require("./geminiAI");
+
+    // Use the new critical health content generator
+    const aiContent = await generateCriticalHealthContent(userData, alerts);
+
+    // Create combined subject
+    const alertTypes = alerts.map((alert) => alert.vitalSign).join(", ");
+    const combinedTitle =
+      alerts.length > 1
+        ? `CRITICAL: Multiple Health Alerts`
+        : `CRITICAL: ${alerts[0].vitalSign} Alert`;
+    const combinedSubject =
+      alerts.length > 1
+        ? `⚠️ CRITICAL: Multiple Health Alerts - ${userData.name}`
+        : `⚠️ CRITICAL: ${alerts[0].vitalSign} Alert - ${userData.name}`;
+
+    return {
+      title: combinedTitle,
+      subject: combinedSubject,
+      body: aiContent.body,
+    };
+  } catch (error) {
+    console.error("Error generating combined AI content:", error);
+
+    // Fallback content
+    const alertTypes = alerts.map((alert) => alert.vitalSign).join(", ");
+    return {
+      subject: `⚠️ CRITICAL: Health Alert - ${userData.name}`,
+      body: `Multiple critical vital signs detected: ${alertTypes}. Immediate medical attention may be required. Please contact the patient and consider medical evaluation.`,
+    };
+  }
+}
+
+async function processCriticalAlertsBuffer(userId) {
+  try {
+    const buffer = criticalAlertsBuffer.get(userId);
+    if (!buffer || buffer.alerts.length === 0) {
+      criticalAlertsBuffer.delete(userId);
+      return;
+    }
+
+    console.log(
+      `Processing ${buffer.alerts.length} critical alerts for user ${userId}`
+    );
+
     const user = await User.findOne({ userId });
 
     if (!user || !user.caregivers || user.caregivers.length === 0) {
       console.log(`No caregivers found for user ${userId}`);
+      criticalAlertsBuffer.delete(userId);
       return;
     }
 
-    // Extract caregiver emails
+    // Generate AI content for all critical alerts using the new method
+    const aiContent = await generateCombinedContent(user, buffer.alerts);
+
+    // Create notification body with basic alert info (no patient details for privacy)
+    let notificationBody = "";
+    if (buffer.alerts.length > 1) {
+      notificationBody = "Multiple critical vital signs detected:\n";
+      buffer.alerts.forEach((alert) => {
+        if (alert.vitalSign === "Heart Rate") {
+          notificationBody += `• Heart Rate: ${alert.value} BPM\n`;
+        } else if (alert.vitalSign === "Blood Pressure") {
+          notificationBody += `• Blood Pressure: ${alert.details.systolic}/${alert.details.diastolic} mmHg\n`;
+        } else if (alert.vitalSign === "SpO2") {
+          notificationBody += `• Blood Oxygen: ${alert.value}%\n`;
+        }
+      });
+    } else {
+      const alert = buffer.alerts[0];
+      if (alert.vitalSign === "Heart Rate") {
+        notificationBody = `Critical heart rate detected: ${alert.value} BPM`;
+      } else if (alert.vitalSign === "Blood Pressure") {
+        notificationBody = `Critical blood pressure detected: ${alert.details.systolic}/${alert.details.diastolic} mmHg`;
+      } else if (alert.vitalSign === "SpO2") {
+        notificationBody = `Critical blood oxygen detected: ${alert.value}%`;
+      }
+    }
+    notificationBody += "\n\nImmediate medical attention may be required.";
+
+    // Add AI-generated medical guidance to notification
+    notificationBody += `\n\n${aiContent.body}`;
+
+    try {
+      await user.addNotification(
+        aiContent.title,
+        notificationBody,
+        "critical_health_condition"
+      );
+      console.log(
+        `Added critical health notification with AI guidance for user ${userId}`
+      );
+    } catch (err) {
+      console.error("Error adding notification to user:", err);
+    }
+
+    // Send combined email with full patient details
     const caregiverEmails = user.caregivers
       .map((caregiver) => caregiver.email)
       .filter((email) => email);
 
-    if (caregiverEmails.length === 0) {
-      console.log(`No valid caregiver emails found for user ${userId}`);
-      return;
-    }
+    if (caregiverEmails.length > 0) {
+      // Format email body with patient details
+      const timestamp = new Date().toLocaleString();
+      let emailBody = `Dear Caregiver,\n\n`;
 
-    // Construct email message based on vital sign
-    let subject = `ALERT: Critical ${vitalSign} Reading for Patient ${user.name} (ID: ${userId})`;
-    let message = `A critical vital sign reading has been detected for ${user.name}:\n\n`;
-
-    switch (vitalSign) {
-      case "Heart Rate":
-        message += `Heart Rate: ${value} BPM (${
-          value < THRESHOLDS.HEART_RATE.LOW ? "Bradycardia" : "Tachycardia"
-        })\n`;
-        message += `Timestamp: ${new Date().toLocaleString()}\n`;
-        break;
-
-      case "Blood Pressure":
-        message += `Blood Pressure: ${details.systolic}/${details.diastolic} mmHg\n`;
-        if (details.systolic > THRESHOLDS.BLOOD_PRESSURE.SYSTOLIC_HIGH) {
-          message += `High systolic pressure detected\n`;
-        } else if (details.systolic < THRESHOLDS.BLOOD_PRESSURE.SYSTOLIC_LOW) {
-          message += `Low systolic pressure detected\n`;
+      // Add critical event details
+      emailBody += `**Critical Health Event Details:**\n`;
+      buffer.alerts.forEach((alert, index) => {
+        emailBody += `\nAlert ${index + 1}: ${alert.vitalSign}\n`;
+        if (alert.vitalSign === "Heart Rate") {
+          emailBody += `• Current Reading: ${alert.value} BPM\n`;
+          emailBody += `• Normal Range: ${user.normalHeartRate} BPM\n`;
+        } else if (alert.vitalSign === "Blood Pressure") {
+          emailBody += `• Current Reading: ${alert.details.systolic}/${alert.details.diastolic} mmHg\n`;
+          emailBody += `• Normal Range: ${user.normalBP} mmHg\n`;
+        } else if (alert.vitalSign === "SpO2") {
+          emailBody += `• Current Reading: ${alert.value}%\n`;
+          emailBody += `• Normal Range: ${user.normalSpO2}%\n`;
         }
+      });
 
-        if (details.diastolic > THRESHOLDS.BLOOD_PRESSURE.DIASTOLIC_HIGH) {
-          message += `High diastolic pressure detected\n`;
-        } else if (
-          details.diastolic < THRESHOLDS.BLOOD_PRESSURE.DIASTOLIC_LOW
-        ) {
-          message += `Low diastolic pressure detected\n`;
+      emailBody += `\n**Patient Details:**\n`;
+      emailBody += `• Name: ${user.name}\n`;
+      emailBody += `• Age: ${user.age}\n`;
+      emailBody += `• Gender: ${user.gender}\n`;
+      if (user.healthConditions && user.healthConditions.length > 0) {
+        emailBody += `• Health Conditions: ${user.healthConditions.join(
+          ", "
+        )}\n`;
+      }
+      if (user.medications && user.medications.length > 0) {
+        emailBody += `• Current Medications: ${user.medications
+          .map((med) => `${med.name} (${med.dosage})`)
+          .join(", ")}\n`;
+      }
+
+      emailBody += `\n${aiContent.body}\n\n`;
+      emailBody += `---\nThis is an AI generated alert from AI Sensa Health Monitoring System.\nFor support, contact: support-aisensa@gmail.com\n\nAlert Generated: ${timestamp}`;
+
+      for (const email of caregiverEmails) {
+        try {
+          const { plainText, htmlText } = formatContent(emailBody);
+          const mailOptions = {
+            from: process.env.EMAIL_USER,
+            to: email,
+            subject: aiContent.subject,
+            text: plainText,
+            html: htmlText,
+          };
+
+          const info = await transporter.sendMail(mailOptions);
+          console.log(
+            `Critical health alert email sent to ${email}: ${info.messageId}`
+          );
+        } catch (emailErr) {
+          console.error(`Error sending email to ${email}:`, emailErr);
         }
-        message += `Timestamp: ${new Date().toLocaleString()}\n`;
-        break;
-
-      case "SpO2":
-        message += `Blood Oxygen Level: ${value}%\n`;
-        message += `This indicates potential hypoxemia and requires immediate attention.\n`;
-        message += `Timestamp: ${new Date().toLocaleString()}\n`;
-        break;
-
-      case "Fall Detection":
-        message += `A high severity fall has been detected!\n`;
-        message += `Location: ${details.location}\n`;
-        message += `Immediate assistance may be required.\n`;
-        message += `Timestamp: ${new Date().toLocaleString()}\n`;
-        subject = `URGENT: Fall Detection Alert for Patient ${user.name} (ID: ${userId})`;
-        break;
+      }
     }
 
-    message += `\nPatient Details:\n`;
-    message += `Name: ${user.name}\n`;
-    message += `Age: ${user.age}\n`;
-    message += `Gender: ${user.gender}\n`;
+    // Clear the buffer
+    criticalAlertsBuffer.delete(userId);
+    console.log(`Processed and cleared buffer for user ${userId}`);
+  } catch (err) {
+    console.error("Error processing critical alerts buffer:", err);
+    criticalAlertsBuffer.delete(userId);
+  }
+}
 
-    if (user.disease) {
-      message += `Medical Condition: ${user.disease}\n`;
-    }
+// Enhanced alert function with AI-generated content
+async function sendEnhancedAlert(
+  userId,
+  vitalSign,
+  value,
+  details = {},
+  notiType = "critical_health_condition"
+) {
+  try {
+    if (notiType === "emergency_alert") {
+      // Send fall detection alerts immediately
+      const { generateEmergencyFallContent } = require("./geminiAI");
+      const user = await User.findOne({ userId });
 
-    if (user.medications) {
-      message += `Medications: ${user.medications}\n`;
-    }
+      if (!user || !user.caregivers || user.caregivers.length === 0) {
+        console.log(`No caregivers found for user ${userId}`);
+        return;
+      }
 
-    message +=
-      "\nThis is an automated message from AI Sensa Health Monitoring System.";
+      const aiContent = await generateEmergencyFallContent(user, details);
 
-    // Send the email to all caregivers
-    for (const email of caregiverEmails) {
+      // Fixed format for emergency alerts
+      const subject = `🚨 EMERGENCY: Fall Detection Alert - ${user.name}`;
+      const title = "EMERGENCY: Fall Detection Alert";
+
+      // Create structured email body for fall detection
+      const timestamp = new Date().toLocaleString();
+      let emailBody = `Dear Caregiver,\n\n`;
+      emailBody += `**Critical Event Details:**\n`;
+      emailBody += `• Type: Fall\n`;
+      emailBody += `• Severity: ${
+        details.severity.charAt(0).toUpperCase() + details.severity.slice(1)
+      }\n`;
+      emailBody += `• Location: ${details.location}\n\n`;
+      emailBody += `**Patient Details:**\n`;
+      emailBody += `• Name: ${user.name}\n`;
+      emailBody += `• Age: ${user.age}\n`;
+      emailBody += `• Gender: ${user.gender}\n`;
+      if (user.healthConditions && user.healthConditions.length > 0) {
+        emailBody += `• Known Health Conditions: ${user.healthConditions.join(
+          ", "
+        )}\n`;
+      }
+      if (user.medications && user.medications.length > 0) {
+        emailBody += `• Medications: ${user.medications
+          .map((med) => `${med.name} (${med.dosage})`)
+          .join(", ")}\n`;
+      }
+      emailBody += `\n${aiContent.body}\n\n`;
+      emailBody += `This is an AI generated alert from AI Sensa Health Monitoring System.\nFor support, contact: support-aisensa@gmail.com\n\nAlert Generated: ${timestamp}`;
+
+      // Add notification to database with AI generated content
       try {
-        const mailOptions = {
-          from: process.env.EMAIL_USER,
-          to: email,
-          subject: subject,
-          text: message,
-        };
+        let notificationBody = "";
+        notificationBody += `**Critical Event Details:**\n`;
+        notificationBody += `• Type: Fall\n`;
+        notificationBody += `• Severity: ${
+          details.severity.charAt(0).toUpperCase() + details.severity.slice(1)
+        }\n`;
+        notificationBody += `• Location: ${details.location}\n\n`;
+        notificationBody += `${aiContent.body}\n\n`;
+        await user.addNotification(title, notificationBody, "emergency_alert");
+        console.log(`Added emergency notification for user ${userId}`);
+      } catch (err) {
+        console.error("Error adding emergency notification to user:", err);
+      }
 
-        const info = await transporter.sendMail(mailOptions);
-        console.log(`Alert email sent to ${email}: ${info.messageId}`);
-      } catch (emailErr) {
-        // If sending to one caregiver fails, continue with others
-        console.error(`Error sending email to ${email}:`, emailErr);
+      // Send email immediately for emergency
+      const caregiverEmails = user.caregivers
+        .map((caregiver) => caregiver.email)
+        .filter((email) => email);
+
+      if (caregiverEmails.length > 0) {
+        for (const email of caregiverEmails) {
+          try {
+            const { plainText, htmlText } = formatContent(emailBody);
+            const mailOptions = {
+              from: process.env.EMAIL_USER,
+              to: email,
+              subject: subject,
+              text: plainText,
+              html: htmlText,
+            };
+
+            const info = await transporter.sendMail(mailOptions);
+            console.log(
+              `Emergency alert email sent to ${email}: ${info.messageId}`
+            );
+          } catch (emailErr) {
+            console.error(
+              `Error sending emergency email to ${email}:`,
+              emailErr
+            );
+          }
+        }
+      }
+    } else {
+      // Handle critical_health_condition alerts with buffering
+      const alertData = {
+        vitalSign,
+        value,
+        details,
+        timestamp: new Date(),
+      };
+
+      if (criticalAlertsBuffer.has(userId)) {
+        // Check if this vital sign type is already in the buffer
+        const buffer = criticalAlertsBuffer.get(userId);
+        const existingAlert = buffer.alerts.find(
+          (alert) => alert.vitalSign === vitalSign
+        );
+
+        if (existingAlert) {
+          // IGNORE if this vital sign type is already in the buffer
+          console.log(
+            `${vitalSign} alert already exists in buffer for user ${userId} - ignoring duplicate`
+          );
+          return; // Exit without adding or updating
+        } else {
+          // Add new vital type to existing buffer
+          buffer.alerts.push(alertData);
+          console.log(
+            `Added ${vitalSign} to existing buffer for user ${userId}`
+          );
+        }
+      } else {
+        // Create new buffer
+        const buffer = {
+          alerts: [alertData],
+          timeout: setTimeout(() => {
+            processCriticalAlertsBuffer(userId);
+          }, BUFFER_DELAY),
+        };
+        criticalAlertsBuffer.set(userId, buffer);
+        console.log(`Created new buffer for user ${userId} with ${vitalSign}`);
       }
     }
   } catch (err) {
-    console.error("Error sending email alert:", err);
+    console.error("Error in sendEnhancedAlert:", err);
   }
 }
 
-// Function to add notification to user's database
-async function addNotificationToUser(userId, title, body, type) {
-  try {
-    const user = await User.findOne({ userId });
-    if (user) {
-      await user.addNotification(title, body, type);
-      console.log(`Added ${type} notification for user ${userId}`);
-    } else {
-      console.log(`User ${userId} not found for notification`);
+// Function to generate more realistic vital signs based on user's health conditions
+function adjustVitalSignsForConditions(baseValue, userData, vitalType) {
+  const conditions = userData.healthConditions || [];
+  const medications = userData.medications || [];
+
+  let adjustedValue = baseValue;
+
+  // Adjust based on health conditions
+  conditions.forEach((condition) => {
+    const lowerCondition = condition.toLowerCase();
+
+    if (vitalType === "Heart Rate") {
+      if (
+        lowerCondition.includes("hypertension") ||
+        lowerCondition.includes("high blood pressure")
+      ) {
+        adjustedValue += Math.random() * 10 + 5; // Slightly elevated
+      }
+      if (lowerCondition.includes("diabetes")) {
+        adjustedValue += Math.random() * 8 + 3;
+      }
+      if (
+        lowerCondition.includes("heart") ||
+        lowerCondition.includes("cardiac")
+      ) {
+        adjustedValue += Math.random() * 15 + 10; // More significant elevation
+      }
+    } else if (vitalType === "Blood Pressure") {
+      if (
+        lowerCondition.includes("hypertension") ||
+        lowerCondition.includes("high blood pressure")
+      ) {
+        adjustedValue += Math.random() * 20 + 10;
+      }
+      if (lowerCondition.includes("diabetes")) {
+        adjustedValue += Math.random() * 15 + 5;
+      }
+    } else if (vitalType === "SpO2") {
+      if (
+        lowerCondition.includes("copd") ||
+        lowerCondition.includes("asthma") ||
+        lowerCondition.includes("lung")
+      ) {
+        adjustedValue -= Math.random() * 3 + 1; // Lower oxygen levels
+      }
+      if (
+        lowerCondition.includes("heart") ||
+        lowerCondition.includes("cardiac")
+      ) {
+        adjustedValue -= Math.random() * 2 + 1;
+      }
     }
-  } catch (err) {
-    console.error("Error adding notification to user:", err);
+  });
+
+  // Adjust based on age
+  if (userData.age > 65) {
+    if (vitalType === "Heart Rate") {
+      adjustedValue += Math.random() * 5 + 2;
+    } else if (vitalType === "SpO2") {
+      adjustedValue -= Math.random() * 1 + 0.5;
+    }
   }
+
+  return adjustedValue;
 }
 
-function simulateHeartRate(
+async function simulatePersonalizedHeartRate(
   userId,
-  baseHeartRate = 75,
   variance = 10,
   interval = 5000
 ) {
-  console.log("Starting heart rate simulation");
+  console.log("Starting personalized heart rate simulation");
 
-  // Function to generate a random heart rate
-  const generateHeartRate = () => {
-    // Generate a random value between -variance and +variance
+  // Fetch user data
+  const user = await User.findOne({ userId });
+  if (!user) {
+    console.error(`User ${userId} not found for heart rate simulation`);
+    return null;
+  }
+
+  const baseHeartRate = user.normalHeartRate;
+
+  const generatePersonalizedHeartRate = () => {
     const randomVariation = Math.random() * (variance * 2) - variance;
-
-    // Add the random variation to the base heart rate
     let heartRate = Math.round(baseHeartRate + randomVariation);
 
-    // Ensure heart rate stays within realistic bounds
+    // Apply health condition adjustments
+    heartRate = adjustVitalSignsForConditions(heartRate, user, "Heart Rate");
+
+    heartRate = Math.round(heartRate);
+
+    // Ensure realistic bounds
     heartRate = Math.max(40, Math.min(180, heartRate));
 
     return heartRate;
   };
 
-  // Function to save a heart rate reading
-  const saveHeartRate = async () => {
+  const savePersonalizedHeartRate = async () => {
     try {
-      const bpm = generateHeartRate();
+      const bpm = generatePersonalizedHeartRate();
 
       const newReading = new HeartRate({
         userId,
@@ -186,50 +561,73 @@ function simulateHeartRate(
       });
 
       await newReading.save();
-      console.log(`Saved heart rate: ${bpm} BPM`);
+      console.log(
+        `Saved personalized heart rate: ${bpm} BPM (Normal: ${baseHeartRate} BPM)`
+      );
 
-      // Check for critical values
-      if (bpm < THRESHOLDS.HEART_RATE.LOW || bpm > THRESHOLDS.HEART_RATE.HIGH) {
+      // Check for critical values using personalized thresholds
+      const updatedUser = await User.findOne({ userId });
+      if (isVitalCritical("Heart Rate", bpm, updatedUser)) {
         console.log(`Critical heart rate detected: ${bpm} BPM`);
-        await sendAlert(userId, "Heart Rate", bpm);
+        await sendEnhancedAlert(
+          userId,
+          "Heart Rate",
+          bpm,
+          {},
+          "critical_health_condition"
+        );
       }
     } catch (err) {
-      console.error("Error saving simulated heart rate:", err);
+      console.error("Error saving personalized heart rate:", err);
     }
   };
 
-  // Start the interval and return it so it can be stopped later
-  const simulationInterval = setInterval(saveHeartRate, interval);
-
-  // Save one reading immediately
-  saveHeartRate();
+  const simulationInterval = setInterval(savePersonalizedHeartRate, interval);
+  savePersonalizedHeartRate();
 
   return simulationInterval;
 }
 
-function simulateBloodPressure(
+async function simulatePersonalizedBloodPressure(
   userId,
-  baseSystolic = 120,
-  baseDiastolic = 80,
   variance = 10,
   interval = 10000
 ) {
-  console.log("Starting blood pressure simulation");
+  console.log("Starting personalized blood pressure simulation");
 
-  // Function to generate a random blood pressure reading
-  const generateBloodPressure = () => {
-    // Generate random variations for systolic and diastolic
+  // Fetch user data
+  const user = await User.findOne({ userId });
+  if (!user) {
+    console.error(`User ${userId} not found for blood pressure simulation`);
+    return null;
+  }
+
+  const { systolic: baseSystolic, diastolic: baseDiastolic } = parseNormalBP(
+    user.normalBP
+  );
+
+  const generatePersonalizedBloodPressure = () => {
     const systolicVariation = Math.random() * (variance * 2) - variance;
     const diastolicVariation =
       Math.random() * (variance * 0.8 * 2) - variance * 0.8;
 
-    // Add the random variations to the base values
     let systolic = Math.round(baseSystolic + systolicVariation);
     let diastolic = Math.round(baseDiastolic + diastolicVariation);
 
-    // Ensure values stay within realistic bounds
-    systolic = Math.max(90, Math.min(180, systolic));
-    diastolic = Math.max(60, Math.min(120, diastolic));
+    // Apply health condition adjustments
+    systolic = adjustVitalSignsForConditions(systolic, user, "Blood Pressure");
+    diastolic = adjustVitalSignsForConditions(
+      diastolic,
+      user,
+      "Blood Pressure"
+    );
+
+    systolic = Math.round(systolic);
+    diastolic = Math.round(diastolic);
+
+    // Ensure realistic bounds
+    systolic = Math.max(90, Math.min(200, systolic));
+    diastolic = Math.max(50, Math.min(120, diastolic));
 
     // Ensure systolic is always greater than diastolic
     if (systolic <= diastolic) {
@@ -239,10 +637,9 @@ function simulateBloodPressure(
     return { systolic, diastolic };
   };
 
-  // Function to save a blood pressure reading
-  const saveBloodPressure = async () => {
+  const savePersonalizedBloodPressure = async () => {
     try {
-      const { systolic, diastolic } = generateBloodPressure();
+      const { systolic, diastolic } = generatePersonalizedBloodPressure();
 
       const newReading = new BloodPressure({
         userId,
@@ -251,59 +648,76 @@ function simulateBloodPressure(
       });
 
       await newReading.save();
-      console.log(`Saved BP: ${systolic}/${diastolic} mmHg`);
+      console.log(
+        `Saved personalized BP: ${systolic}/${diastolic} mmHg (Normal: ${user.normalBP})`
+      );
 
-      // Check for critical values
-      const isCritical =
-        systolic > THRESHOLDS.BLOOD_PRESSURE.SYSTOLIC_HIGH ||
-        systolic < THRESHOLDS.BLOOD_PRESSURE.SYSTOLIC_LOW ||
-        diastolic > THRESHOLDS.BLOOD_PRESSURE.DIASTOLIC_HIGH ||
-        diastolic < THRESHOLDS.BLOOD_PRESSURE.DIASTOLIC_LOW;
-
-      if (isCritical) {
+      // Check for critical values using personalized thresholds
+      const updatedUser = await User.findOne({ userId });
+      if (
+        isVitalCritical("Blood Pressure", null, updatedUser, {
+          systolic,
+          diastolic,
+        })
+      ) {
         console.log(
           `Critical blood pressure detected: ${systolic}/${diastolic} mmHg`
         );
-        await sendAlert(userId, "Blood Pressure", null, {
-          systolic,
-          diastolic,
-        });
+        await sendEnhancedAlert(
+          userId,
+          "Blood Pressure",
+          null,
+          { systolic, diastolic },
+          "critical_health_condition"
+        );
       }
     } catch (err) {
-      console.error("Error saving simulated blood pressure:", err);
+      console.error("Error saving personalized blood pressure:", err);
     }
   };
 
-  // Start the interval and return it so it can be stopped later
-  const simulationInterval = setInterval(saveBloodPressure, interval);
-
-  // Save one reading immediately
-  saveBloodPressure();
+  const simulationInterval = setInterval(
+    savePersonalizedBloodPressure,
+    interval
+  );
+  savePersonalizedBloodPressure();
 
   return simulationInterval;
 }
 
-function simulateSpO2(userId, baseLevel = 97, variance = 2, interval = 15000) {
-  console.log("Starting SpO2 simulation");
+async function simulatePersonalizedSpO2(
+  userId,
+  variance = 2,
+  interval = 15000
+) {
+  console.log("Starting personalized SpO2 simulation");
 
-  // Function to generate a random SpO2 reading
-  const generateSpO2 = () => {
-    // Generate a random value between -variance and +variance
+  // Fetch user data
+  const user = await User.findOne({ userId });
+  if (!user) {
+    console.error(`User ${userId} not found for SpO2 simulation`);
+    return null;
+  }
+
+  const baseLevel = user.normalSpO2;
+
+  const generatePersonalizedSpO2 = () => {
     const randomVariation = Math.random() * (variance * 2) - variance;
-
-    // Add the random variation to the base level
     let level = Math.round(baseLevel + randomVariation);
 
-    // Ensure level stays within realistic bounds
+    // Apply health condition adjustments
+    level = adjustVitalSignsForConditions(level, user, "SpO2");
+
+    level = Math.round(level);
+    // Ensure realistic bounds
     level = Math.max(85, Math.min(100, level));
 
     return level;
   };
 
-  // Function to save a SpO2 reading
-  const saveSpO2 = async () => {
+  const savePersonalizedSpO2 = async () => {
     try {
-      const level = generateSpO2();
+      const level = generatePersonalizedSpO2();
 
       const newReading = new SpO2({
         userId,
@@ -311,23 +725,27 @@ function simulateSpO2(userId, baseLevel = 97, variance = 2, interval = 15000) {
       });
 
       await newReading.save();
-      console.log(`Saved SpO2: ${level}%`);
+      console.log(`Saved personalized SpO2: ${level}% (Normal: ${baseLevel}%)`);
 
-      // Check for critical values
-      if (level < THRESHOLDS.SPO2.LOW) {
+      // Check for critical values using personalized thresholds
+      const updatedUser = await User.findOne({ userId });
+      if (isVitalCritical("SpO2", level, updatedUser)) {
         console.log(`Critical SpO2 level detected: ${level}%`);
-        await sendAlert(userId, "SpO2", level);
+        await sendEnhancedAlert(
+          userId,
+          "SpO2",
+          level,
+          {},
+          "critical_health_condition"
+        );
       }
     } catch (err) {
-      console.error("Error saving simulated SpO2:", err);
+      console.error("Error saving personalized SpO2:", err);
     }
   };
 
-  // Start the interval and return it so it can be stopped later
-  const simulationInterval = setInterval(saveSpO2, interval);
-
-  // Save one reading immediately
-  saveSpO2();
+  const simulationInterval = setInterval(savePersonalizedSpO2, interval);
+  savePersonalizedSpO2();
 
   return simulationInterval;
 }
@@ -356,24 +774,19 @@ function simulateFallDetection(userId, probability = 5, interval = 60000) {
   // Function to check for a fall
   const checkForFall = async () => {
     try {
-      // Random number between 1-100
       const fallChance = Math.random() * 100;
-
       console.log(
         `Fall check: chance ${fallChance.toFixed(
           2
         )}%, threshold ${probability}%`
       );
 
-      // If the random number is less than or equal to the fall probability, record a fall
       if (fallChance <= probability) {
-        // Select a random location
         const location =
           locations[Math.floor(Math.random() * locations.length)];
 
-        // Select a severity based on weighted probabilities
         let severityRoll = Math.random() * 100;
-        let chosenSeverity = "medium"; // Default
+        let chosenSeverity = "medium";
 
         let cumulativeProbability = 0;
         for (const severity of severities) {
@@ -393,33 +806,15 @@ function simulateFallDetection(userId, probability = 5, interval = 60000) {
         await newFall.save();
         console.log(`Recorded fall: ${chosenSeverity} severity in ${location}`);
 
-        // Add emergency_alert notification for all falls
-        const notificationTitle = `Fall Detected - ${
-          chosenSeverity.charAt(0).toUpperCase() + chosenSeverity.slice(1)
-        } Severity`;
-        const notificationBody = `A ${chosenSeverity} severity fall has been detected in the ${location}. ${
-          chosenSeverity === "high"
-            ? "Immediate assistance may be required."
-            : "Please check on the patient."
-        }`;
-
-        await addNotificationToUser(
+        // Send emergency alert for all falls with AI content
+        console.log(`Fall detected in ${location} - sending emergency alert`);
+        await sendEnhancedAlert(
           userId,
-          notificationTitle,
-          notificationBody,
+          "Fall",
+          null,
+          { severity: chosenSeverity, location },
           "emergency_alert"
         );
-
-        // Send alert only for high severity falls
-        if (chosenSeverity === "high") {
-          console.log(
-            `High severity fall detected in ${location} - sending alert`
-          );
-          await sendAlert(userId, "Fall Detection", null, {
-            severity: chosenSeverity,
-            location,
-          });
-        }
       } else {
         console.log("No fall detected");
       }
@@ -443,9 +838,9 @@ function stopSimulation(intervalObject) {
 }
 
 module.exports = {
-  simulateHeartRate,
-  simulateBloodPressure,
-  simulateSpO2,
+  simulatePersonalizedHeartRate,
+  simulatePersonalizedBloodPressure,
+  simulatePersonalizedSpO2,
   simulateFallDetection,
   stopSimulation,
 };

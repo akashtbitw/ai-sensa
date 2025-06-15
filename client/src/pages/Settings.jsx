@@ -34,6 +34,9 @@ const Settings = () => {
     age: "",
     gender: "",
     healthConditions: [],
+    normalHeartRate: "",
+    normalBP: "",
+    normalSpO2: "",
   });
   const [originalProfileData, setOriginalProfileData] = useState({});
   const [newHealthCondition, setNewHealthCondition] = useState("");
@@ -60,6 +63,9 @@ const Settings = () => {
               age: data.user.age || "",
               gender: data.user.gender || "",
               healthConditions: data.user.healthConditions || [],
+              normalHeartRate: data.user.normalHeartRate || "",
+              normalBP: data.user.normalBP || "",
+              normalSpO2: data.user.normalSpO2 || "",
             });
             setOriginalProfileData({
               name: data.user.name || "",
@@ -68,6 +74,9 @@ const Settings = () => {
               age: data.user.age || "",
               gender: data.user.gender || "",
               healthConditions: [...(data.user.healthConditions || [])],
+              normalHeartRate: data.user.normalHeartRate || "",
+              normalBP: data.user.normalBP || "",
+              normalSpO2: data.user.normalSpO2 || "",
             });
           }
           // Make sure we're correctly accessing the caregivers from the API response
@@ -146,12 +155,14 @@ const Settings = () => {
 
   const startEditingProfile = () => {
     setEditingProfile(true);
-    toast.info("Now editing profile information");
   };
 
   const cancelEditingProfile = () => {
     setEditingProfile(false);
-    setProfileData({ ...originalProfileData });
+    setProfileData({
+      ...originalProfileData,
+      healthConditions: [...originalProfileData.healthConditions],
+    });
     setNewHealthCondition("");
   };
 
@@ -163,18 +174,28 @@ const Settings = () => {
         !profileData.height ||
         !profileData.weight ||
         !profileData.age ||
-        !profileData.gender
+        !profileData.gender ||
+        !profileData.normalHeartRate ||
+        !profileData.normalBP ||
+        !profileData.normalSpO2
       ) {
         setError("All profile fields are required");
         return;
       }
-
       if (
         profileData.height <= 0 ||
         profileData.weight <= 0 ||
         profileData.age <= 0
       ) {
         setError("Height, weight, and age must be positive numbers");
+        return;
+      }
+      if (
+        profileData.normalHeartRate <= 0 ||
+        profileData.normalSpO2 <= 0 ||
+        profileData.normalSpO2 > 100
+      ) {
+        setError("Please enter valid vital signs values");
         return;
       }
 
@@ -194,6 +215,9 @@ const Settings = () => {
           age: Number(profileData.age),
           gender: profileData.gender,
           healthConditions: profileData.healthConditions,
+          normalHeartRate: Number(profileData.normalHeartRate),
+          normalBP: profileData.normalBP,
+          normalSpO2: Number(profileData.normalSpO2),
         }),
       });
 
@@ -467,7 +491,7 @@ const Settings = () => {
       <div className="mb-8">
         <button
           onClick={() => setShowProfile(!showProfile)}
-          className="bg-green-600 text-white py-2 px-4 rounded cursor-pointer hover:bg-green-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-green-500 mb-4 flex items-center"
+          className="bg-blue-600 text-white py-2 px-4 rounded cursor-pointer hover:bg-blue-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-blue-500 mb-4 flex items-center"
         >
           {showProfile ? (
             <>
@@ -595,6 +619,68 @@ const Settings = () => {
                         <option value="Other">Other</option>
                       </select>
                     </div>
+                    <div className="md:col-span-2">
+                      <h4 className="text-md font-medium text-gray-800 mb-3 mt-4">
+                        Normal Vital Signs
+                      </h4>
+                      <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+                        <div>
+                          <label className="block text-gray-700 text-sm font-medium mb-1">
+                            Normal Heart Rate (bpm){" "}
+                            <span className="text-red-500">*</span>
+                          </label>
+                          <input
+                            type="number"
+                            value={profileData.normalHeartRate}
+                            onChange={(e) =>
+                              handleProfileChange(
+                                "normalHeartRate",
+                                e.target.value
+                              )
+                            }
+                            className="w-full p-2 border border-gray-300 rounded focus:border-blue-500 focus:ring focus:ring-blue-200"
+                            placeholder="e.g., 72"
+                            min="30"
+                            max="200"
+                          />
+                        </div>
+
+                        <div>
+                          <label className="block text-gray-700 text-sm font-medium mb-1">
+                            Normal Blood Pressure{" "}
+                            <span className="text-red-500">*</span>
+                          </label>
+                          <input
+                            type="text"
+                            value={profileData.normalBP}
+                            onChange={(e) =>
+                              handleProfileChange("normalBP", e.target.value)
+                            }
+                            className="w-full p-2 border border-gray-300 rounded focus:border-blue-500 focus:ring focus:ring-blue-200"
+                            placeholder="e.g., 120/80"
+                            pattern="[0-9]+/[0-9]+"
+                          />
+                        </div>
+
+                        <div>
+                          <label className="block text-gray-700 text-sm font-medium mb-1">
+                            Normal SpO2 (%){" "}
+                            <span className="text-red-500">*</span>
+                          </label>
+                          <input
+                            type="number"
+                            value={profileData.normalSpO2}
+                            onChange={(e) =>
+                              handleProfileChange("normalSpO2", e.target.value)
+                            }
+                            className="w-full p-2 border border-gray-300 rounded focus:border-blue-500 focus:ring focus:ring-blue-200"
+                            placeholder="e.g., 98"
+                            min="70"
+                            max="100"
+                          />
+                        </div>
+                      </div>
+                    </div>
                   </div>
 
                   <div>
@@ -678,6 +764,27 @@ const Settings = () => {
                     <p className="font-medium">{profileData.gender}</p>
                   </div>
                   <div className="md:col-span-2">
+                    <h4 className="text-sm text-gray-500 font-medium mb-2">
+                      Normal Vital Signs
+                    </h4>
+                    <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+                      <div>
+                        <p className="text-sm text-gray-500">Heart Rate</p>
+                        <p className="font-medium">
+                          {profileData.normalHeartRate} bpm
+                        </p>
+                      </div>
+                      <div>
+                        <p className="text-sm text-gray-500">Blood Pressure</p>
+                        <p className="font-medium">{profileData.normalBP}</p>
+                      </div>
+                      <div>
+                        <p className="text-sm text-gray-500">SpO2</p>
+                        <p className="font-medium">{profileData.normalSpO2}%</p>
+                      </div>
+                    </div>
+                  </div>
+                  <div className="md:col-span-2">
                     <p className="text-sm text-gray-500">Health Conditions</p>
                     {profileData.healthConditions.length > 0 ? (
                       <div className="flex flex-wrap gap-2 mt-1">
@@ -746,7 +853,7 @@ const Settings = () => {
             </>
           ) : (
             <>
-              <ChevronDown className="h-5 w-5 mr-1" /> Modify Caregivers
+              <ChevronDown className="h-5 w-5 mr-1" /> Edit Caregiver Details
             </>
           )}
         </button>

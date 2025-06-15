@@ -2,9 +2,9 @@
 const express = require("express");
 const router = express.Router();
 const {
-  simulateHeartRate,
-  simulateBloodPressure,
-  simulateSpO2,
+  simulatePersonalizedHeartRate,
+  simulatePersonalizedBloodPressure,
+  simulatePersonalizedSpO2,
   simulateFallDetection,
   stopSimulation,
 } = require("../utils/vitalSignsSimulator");
@@ -56,31 +56,27 @@ router.post("/start", async (req, res) => {
     let simulationInterval;
 
     if (simulationType === "heartRate") {
-      const { baseHeartRate = 75, variance = 10, interval = 5000 } = req.body;
-      simulationInterval = simulateHeartRate(
+      const { variance = 10, interval = 5000 } = req.body;
+      simulationInterval = await simulatePersonalizedHeartRate(
         userId,
-        baseHeartRate,
         variance,
         interval
       );
     } else if (simulationType === "bloodPressure") {
-      const {
-        baseSystolic = 120,
-        baseDiastolic = 80,
-        variance = 10,
-        interval = 10000,
-      } = req.body;
+      const { variance = 10, interval = 10000 } = req.body;
 
-      simulationInterval = simulateBloodPressure(
+      simulationInterval = await simulatePersonalizedBloodPressure(
         userId,
-        baseSystolic,
-        baseDiastolic,
         variance,
         interval
       );
     } else if (simulationType === "spo2") {
-      const { baseLevel = 97, variance = 2, interval = 15000 } = req.body;
-      simulationInterval = simulateSpO2(userId, baseLevel, variance, interval);
+      const { variance = 2, interval = 15000 } = req.body;
+      simulationInterval = await simulatePersonalizedSpO2(
+        userId,
+        variance,
+        interval
+      );
     } else if (simulationType === "fallDetection") {
       const { probability = 5, interval = 60000 } = req.body;
       simulationInterval = simulateFallDetection(userId, probability, interval);

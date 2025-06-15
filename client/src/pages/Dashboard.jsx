@@ -28,6 +28,12 @@ import {
   X,
   PersonStanding,
   ExternalLink,
+  AlertTriangle,
+  Heart,
+  Shield,
+  Eye,
+  CheckCheck,
+  MoreVertical,
 } from "lucide-react";
 const vitalRangesConfig = {
   "heart-rate": {
@@ -79,26 +85,10 @@ const Dashboard = () => {
   const [showNotificationPermission, setShowNotificationPermission] =
     useState(false);
   const [notificationsEnabled, setNotificationsEnabled] = useState(false);
-  const [notifications] = useState([
-    {
-      id: 1,
-      type: "warning",
-      message: "Heart rate slightly elevated",
-      time: "10 mins ago",
-    },
-    {
-      id: 2,
-      type: "success",
-      message: "Daily medication reminder completed",
-      time: "2 hours ago",
-    },
-    {
-      id: 3,
-      type: "info",
-      message: "Weekly health report ready",
-      time: "1 day ago",
-    },
-  ]);
+  const [notifications, setNotifications] = useState([]);
+  const [selectedNotification, setSelectedNotification] = useState(null);
+  const [showNotificationModal, setShowNotificationModal] = useState(false);
+  const [showOptionsMenu, setShowOptionsMenu] = useState(false);
 
   // Mock user data - in real app, this would come from your API
   const [userData, setUserData] = useState(null);
@@ -331,12 +321,283 @@ const Dashboard = () => {
   }, [userData?.medications]);
 
   useEffect(() => {
+    const fetchNotifications = async () => {
+      if (!user?.id) return;
+
+      try {
+        const response = await fetch(
+          `${API_URL}/api/notifications/${user.id}`,
+          {
+            headers: {
+              "Content-Type": "application/json",
+            },
+          }
+        );
+
+        if (response.ok) {
+          const data = await response.json();
+          setNotifications(data.notifications || []);
+        }
+      } catch (error) {
+        console.error("Error fetching notifications:", error);
+      }
+    };
+
+    // Initial fetch
+    fetchNotifications();
+
+    // Set up polling every 5 minutes (300,000 milliseconds)
+    const intervalId = setInterval(fetchNotifications, 5 * 60 * 1000);
+
+    // Cleanup interval on component unmount or user change
+    return () => {
+      clearInterval(intervalId);
+    };
+  }, [user?.id]);
+
+  useEffect(() => {
     const timer = setInterval(() => {
       setCurrentTime(new Date());
     }, 1000);
     return () => clearInterval(timer);
   }, []);
 
+  const formatNotificationBody = (body) => {
+    if (!body) return "";
+
+    // Split by lines but preserve original spacing for indentation detection
+    const lines = body.split("\n").filter((line) => line.trim());
+
+    return lines.map((line, index) => {
+      const trimmedLine = line.trim();
+
+      // Check if line is a main header (enclosed in **)
+      if (trimmedLine.startsWith("**") && !trimmedLine.startsWith("***")) {
+        const headerText = trimmedLine.replace(/\*\*/g, "").trim();
+        return (
+          <div
+            key={index}
+            className="font-bold text-gray-900 mt-4 mb-2 text-base border-b border-gray-200 pb-1"
+          >
+            {headerText}
+          </div>
+        );
+      }
+
+      // Check if line is a sub-header (starts with ***)
+      if (trimmedLine.startsWith("***")) {
+        const headerText = trimmedLine.replace(/\*\*\*/g, "").trim();
+        return (
+          <div
+            key={index}
+            className="font-semibold text-gray-800 mt-3 mb-1 text-sm"
+          >
+            {headerText}
+          </div>
+        );
+      }
+
+      // Check if line is a bullet point (starts with * or •)
+      if (trimmedLine.startsWith("*") || trimmedLine.startsWith("•")) {
+        // Calculate indentation level based on leading spaces
+        const leadingSpaces = line.length - line.trimStart().length;
+        let indentClass = "ml-3"; // Default indentation
+
+        if (leadingSpaces >= 4) {
+          indentClass = "ml-8"; // Nested indentation for 4+ spaces
+        }
+
+        // Remove bullet marker and get text
+        let bulletText = trimmedLine.replace(/^[*•]\s*/, "").trim();
+
+        // Handle bold text within bullet points
+        if (bulletText.includes("**")) {
+          const parts = bulletText.split("**");
+          bulletText = parts.map((part, i) =>
+            i % 2 === 1 ? <strong key={i}>{part}</strong> : part
+          );
+        }
+
+        return (
+          <div
+            key={index}
+            className={`${indentClass} text-sm text-gray-600 mb-1 flex items-start`}
+          >
+            <span className="text-blue-500 mr-2 mt-1">•</span>
+            <span>{bulletText}</span>
+          </div>
+        );
+      }
+      // Check if line contains ** but doesn't start with ** (inline bold formatting)
+      if (trimmedLine.includes("**") && !trimmedLine.startsWith("**")) {
+        const parts = trimmedLine.split("**");
+        const formattedText = parts.map((part, i) =>
+          i % 2 === 1 ? <strong key={i}>{part}</strong> : part
+        );
+
+        return (
+          <div
+            key={index}
+            className="text-sm text-gray-700 mb-2 leading-relaxed"
+          >
+            {formattedText}
+          </div>
+        );
+      }
+
+      // Regular text - handle bold formatting
+      let formattedText = trimmedLine;
+      if (trimmedLine.includes("**")) {
+        const parts = trimmedLine.split("**");
+        formattedText = parts.map((part, i) =>
+          i % 2 === 1 ? <strong key={i}>{part}</strong> : part
+        );
+      }
+
+      return (
+        <div key={index} className="text-sm text-gray-600 mb-1 leading-relaxed">
+          {formattedText}
+        </div>
+      );
+    });
+  };
+
+  const getNotificationPreview = (body) => {
+    if (!body) return "";
+
+    // Remove all formatting markers (**) and get clean text
+    const cleanText = body
+      .replace(/\*\*/g, "") // Remove all ** markers
+      .replace(/\*/g, "") // Remove single * markers
+      .replace(/\n/g, " ") // Replace line breaks with spaces
+      .trim();
+
+    // Return truncated version
+    return cleanText.length > 120
+      ? `${cleanText.substring(0, 120)}...`
+      : cleanText;
+  };
+
+  const getNotificationIcon = (type) => {
+    switch (type) {
+      case "critical_health_condition":
+        return <AlertTriangle className="w-4 h-4 text-red-500" />;
+      case "health_report":
+        return <Heart className="w-4 h-4 text-blue-500" />;
+      case "medication_reminder":
+        return <CheckCircle2 className="w-4 h-4 text-green-500" />;
+      case "appointment_reminder":
+        return <Calendar className="w-4 h-4 text-purple-500" />;
+      case "emergency_alert":
+        return <Shield className="w-4 h-4 text-red-600" />;
+      default:
+        return <Bell className="w-4 h-4 text-blue-500" />;
+    }
+  };
+  const getNotificationColor = (type) => {
+    switch (type) {
+      case "critical_health_condition":
+        return "border-red-500 bg-red-50";
+      case "health_report":
+        return "border-blue-500 bg-blue-50";
+      case "medication_reminder":
+        return "border-green-500 bg-green-50";
+      case "appointment_reminder":
+        return "border-purple-500 bg-purple-50";
+      case "emergency_alert":
+        return "border-red-600 bg-red-100";
+      default:
+        return "border-gray-300 bg-gray-50";
+    }
+  };
+  const formatTimeAgo = (createdAt) => {
+    const now = new Date();
+    const created = new Date(createdAt);
+    const diffMs = now - created;
+    const diffMins = Math.floor(diffMs / (1000 * 60));
+    const diffHours = Math.floor(diffMs / (1000 * 60 * 60));
+    const diffDays = Math.floor(diffMs / (1000 * 60 * 60 * 24));
+
+    if (diffMins < 1) return "Just now";
+    if (diffMins < 60) return `${diffMins} mins ago`;
+    if (diffHours < 24) return `${diffHours} hours ago`;
+    return `${diffDays} days ago`;
+  };
+  const handleNotificationClick = async (notification) => {
+    setSelectedNotification(notification);
+    setShowNotificationModal(true);
+
+    // Mark notification as read if not already read
+    if (!notification.read) {
+      try {
+        await fetch(
+          `${API_URL}/api/notifications/${user.id}/${notification._id}/read`,
+          {
+            method: "PUT",
+            headers: {
+              "Content-Type": "application/json",
+            },
+          }
+        );
+
+        // Update local state
+        setNotifications((prev) =>
+          prev.map((n) =>
+            n._id === notification._id
+              ? { ...n, read: true, readAt: new Date() }
+              : n
+          )
+        );
+      } catch (error) {
+        console.error("Error marking notification as read:", error);
+      }
+    }
+  };
+
+  const handleMarkAllAsRead = async () => {
+    if (!user?.id) return;
+
+    try {
+      await fetch(`${API_URL}/api/notifications/${user.id}/read-all`, {
+        method: "PUT",
+        headers: {
+          "Content-Type": "application/json",
+        },
+      });
+
+      // Update local state
+      setNotifications((prev) =>
+        prev.map((n) => ({ ...n, read: true, readAt: new Date() }))
+      );
+
+      setShowOptionsMenu(false);
+    } catch (error) {
+      console.error("Error marking all notifications as read:", error);
+    }
+  };
+
+  const handleDeleteNotification = async (notificationId) => {
+    if (!user?.id) return;
+
+    try {
+      await fetch(`${API_URL}/api/notifications/${user.id}/${notificationId}`, {
+        method: "DELETE",
+        headers: {
+          "Content-Type": "application/json",
+        },
+      });
+
+      // Update local state
+      setNotifications((prev) => prev.filter((n) => n._id !== notificationId));
+
+      // Close modal if the deleted notification was being viewed
+      if (selectedNotification?._id === notificationId) {
+        setShowNotificationModal(false);
+      }
+    } catch (error) {
+      console.error("Error deleting notification:", error);
+    }
+  };
   const openVitalTracking = (vitalType) => {
     navigate(`/view-data/${vitalType}`);
   };
@@ -471,9 +732,11 @@ const Dashboard = () => {
       try {
         const bodyMessage = [
           `Time to take ${medication.name} (${medication.dosage}mg)`,
-          `Take ${medication.beforeAfterMeal}`,
+          medication.beforeAfterMeal && `Take ${medication.beforeAfterMeal}`,
           `Scheduled for: ${time}`,
-        ].join("\n");
+        ]
+          .filter(Boolean)
+          .join("\n");
 
         // Create a unique tag for this specific medication reminder
         const uniqueTag = `medication-${
@@ -1097,40 +1360,181 @@ const Dashboard = () => {
                 <Bell className="w-5 h-5 mr-2 text-orange-500" />
                 Recent Notifications
               </h2>
-              <span className="bg-orange-100 text-orange-800 text-xs px-2 py-1 rounded-full">
-                {notifications.length} New
-              </span>
+              <div className="flex items-center space-x-2">
+                <span className="bg-orange-100 text-orange-800 text-xs px-2 py-1 rounded-full">
+                  {notifications.filter((n) => !n.read).length} New
+                </span>
+                {notifications.length > 0 && (
+                  <div className="relative">
+                    <button
+                      onClick={() => setShowOptionsMenu(!showOptionsMenu)}
+                      className="cursor-pointer p-1 hover:bg-gray-100 rounded-full transition-colors"
+                    >
+                      <MoreVertical className="w-4 h-4 text-gray-500" />
+                    </button>
+
+                    {showOptionsMenu && (
+                      <div className="absolute right-0 mt-1 w-48 bg-white rounded-lg shadow-lg border z-10">
+                        <button
+                          onClick={handleMarkAllAsRead}
+                          className="cursor-pointer w-full text-left px-4 py-2 text-sm text-gray-700 hover:bg-gray-200 rounded-lg flex items-center"
+                        >
+                          <CheckCheck className="w-4 h-4 mr-2" />
+                          Mark All as Read
+                        </button>
+                      </div>
+                    )}
+                  </div>
+                )}
+              </div>
             </div>
 
-            <div className="space-y-3">
-              {notifications.map((notification) => (
-                <div
-                  key={notification.id}
-                  className="flex items-start p-3 rounded-lg border border-gray-100 hover:bg-gray-50 transition-colors"
-                >
-                  <div className="mr-3 mt-0.5">
-                    {notification.type === "warning" && (
-                      <AlertCircle className="w-4 h-4 text-yellow-500" />
-                    )}
-                    {notification.type === "success" && (
-                      <CheckCircle2 className="w-4 h-4 text-green-500" />
-                    )}
-                    {notification.type === "info" && (
-                      <Bell className="w-4 h-4 text-blue-500" />
-                    )}
-                  </div>
-                  <div className="flex-1">
-                    <p className="text-sm font-medium text-gray-800">
-                      {notification.message}
-                    </p>
-                    <p className="text-xs text-gray-500 mt-1">
-                      {notification.time}
-                    </p>
-                  </div>
+            <div className="max-h-64 overflow-y-auto space-y-3">
+              {notifications.length === 0 ? (
+                <div className="text-center py-8 text-gray-500">
+                  <Bell className="w-8 h-8 mx-auto mb-2 opacity-50" />
+                  <p>No notifications yet</p>
                 </div>
-              ))}
+              ) : (
+                notifications.map((notification) => (
+                  <div
+                    key={notification._id}
+                    className={`group flex items-start p-3 rounded-lg border cursor-pointer hover:shadow-md transition-all ${
+                      notification.read
+                        ? "border-gray-200 bg-white"
+                        : getNotificationColor(notification.type)
+                    }`}
+                    onClick={() => handleNotificationClick(notification)}
+                  >
+                    <div className="mr-3 mt-0.5">
+                      {getNotificationIcon(notification.type)}
+                    </div>
+                    <div className="flex-1 min-w-0">
+                      <div className="flex items-start justify-between">
+                        <p
+                          className={`text-sm font-medium ${
+                            notification.read
+                              ? "text-gray-600"
+                              : "text-gray-800"
+                          }`}
+                        >
+                          {notification.title}
+                        </p>
+                        <div className="flex items-center ml-2">
+                          {!notification.read && (
+                            <div className="w-2 h-2 bg-blue-500 rounded-full mr-2 flex-shrink-0"></div>
+                          )}
+                          <button
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              handleDeleteNotification(notification._id);
+                            }}
+                            className="cursor-pointer opacity-0 group-hover:opacity-100 p-1 hover:bg-red-100 rounded-full transition-all"
+                            title="Delete notification"
+                          >
+                            <Trash2 className="w-3 h-3 text-red-500" />
+                          </button>
+                        </div>
+                      </div>
+                      <p className="text-xs text-gray-500 mt-1 line-clamp-2">
+                        {getNotificationPreview(notification.body)}
+                      </p>
+                      <p className="text-xs text-gray-400 mt-1 flex items-center">
+                        <Clock className="w-3 h-3 mr-1" />
+                        {formatTimeAgo(notification.createdAt)}
+                      </p>
+                    </div>
+                    <Eye className="w-4 h-4 text-gray-400 ml-2 opacity-0 group-hover:opacity-100 transition-opacity" />
+                  </div>
+                ))
+              )}
             </div>
           </div>
+
+          {/* Notification Details Modal */}
+          {showNotificationModal && selectedNotification && (
+            <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50 p-4">
+              <div className="bg-white rounded-xl max-w-md w-full max-h-[80vh] overflow-y-auto">
+                <div
+                  className={`p-6 border-l-4 ${
+                    getNotificationColor(selectedNotification.type).split(
+                      " "
+                    )[0]
+                  }`}
+                >
+                  <div className="flex items-start justify-between mb-4">
+                    <div className="flex items-start">
+                      <div className="mr-3 mt-1">
+                        {getNotificationIcon(selectedNotification.type)}
+                      </div>
+                      <div>
+                        <h3 className="text-lg font-semibold text-gray-800 mb-1">
+                          {selectedNotification.title}
+                        </h3>
+                        <p className="text-xs text-gray-500 flex items-center">
+                          <Clock className="w-3 h-3 mr-1" />
+                          {formatTimeAgo(selectedNotification.createdAt)}
+                          {selectedNotification.read &&
+                            selectedNotification.readAt && (
+                              <span className="ml-2 text-green-600">
+                                • Read
+                              </span>
+                            )}
+                        </p>
+                      </div>
+                    </div>
+                    <button
+                      onClick={() => setShowNotificationModal(false)}
+                      className="text-gray-400 hover:text-gray-600 transition-colors"
+                    >
+                      <X className="w-5 h-5" />
+                    </button>
+                  </div>
+
+                  <div className="space-y-4">
+                    <div>
+                      <h4 className="text-sm font-medium text-gray-700 mb-2">
+                        Details
+                      </h4>
+                      <div className="text-gray-600 leading-relaxed">
+                        {formatNotificationBody(selectedNotification.body)}
+                      </div>
+                    </div>
+
+                    <div className="border-t pt-4">
+                      <div className="flex items-center justify-between text-xs text-gray-500">
+                        <span>
+                          Type:{" "}
+                          {selectedNotification.type
+                            .replace(/_/g, " ")
+                            .replace(/\b\w/g, (l) => l.toUpperCase())}
+                        </span>
+                        <span>ID: {selectedNotification._id.slice(-6)}</span>
+                      </div>
+                    </div>
+                  </div>
+
+                  <div className="mt-6 flex justify-between">
+                    <button
+                      onClick={() =>
+                        handleDeleteNotification(selectedNotification._id)
+                      }
+                      className="px-4 py-2 bg-red-100 text-red-700 rounded-lg hover:bg-red-200 transition-colors flex items-center"
+                    >
+                      <Trash2 className="w-4 h-4 mr-1" />
+                      Delete
+                    </button>
+                    <button
+                      onClick={() => setShowNotificationModal(false)}
+                      className="px-4 py-2 bg-gray-100 text-gray-700 rounded-lg hover:bg-gray-200 transition-colors"
+                    >
+                      Close
+                    </button>
+                  </div>
+                </div>
+              </div>
+            </div>
+          )}
 
           {/* Current Medications - Now in the bottom grid */}
 
@@ -1163,10 +1567,10 @@ const Dashboard = () => {
                 {userData.medications.length > 0 && (
                   <button
                     onClick={() => setShowAddMedication(true)}
-                    className="cursor-pointer flex items-center justify-center w-10 h-10 bg-blue-500 text-white rounded-full hover:bg-blue-600 hover:scale-110 transition-all duration-300 ease-in-out shadow-md hover:shadow-lg opacity-0 group-hover/container:opacity-100 transform translate-y-1 group-hover/container:translate-y-0"
+                    className="cursor-pointer flex items-center justify-center w-10 h-10 bg-blue-500 text-white rounded-full hover:bg-blue-600 hover:scale-110 transition-all duration-300 ease-in-out shadow-md hover:shadow-lg"
                     title="Add new medication"
                   >
-                    <Plus className="w-5 h-5" />
+                    <Plus size={20} />
                   </button>
                 )}
               </div>
