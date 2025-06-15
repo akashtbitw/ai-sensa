@@ -106,7 +106,7 @@ function isVitalCritical(vitalType, currentValue, userData, details = {}) {
 
       // Critical if more than 30% deviation from normal OR beyond medical thresholds
       return (
-        hrDeviationPercent > 3 ||
+        hrDeviationPercent > 30 ||
         currentValue < THRESHOLDS.HEART_RATE.LOW ||
         currentValue > THRESHOLDS.HEART_RATE.HIGH
       );
@@ -120,8 +120,8 @@ function isVitalCritical(vitalType, currentValue, userData, details = {}) {
 
       // Critical if significant deviation from normal OR beyond medical thresholds
       return (
-        sysDeviation > 2 ||
-        diaDeviation > 1 ||
+        sysDeviation > 20 ||
+        diaDeviation > 15 ||
         details.systolic > THRESHOLDS.BLOOD_PRESSURE.SYSTOLIC_HIGH ||
         details.systolic < THRESHOLDS.BLOOD_PRESSURE.SYSTOLIC_LOW ||
         details.diastolic > THRESHOLDS.BLOOD_PRESSURE.DIASTOLIC_HIGH ||
@@ -200,27 +200,27 @@ async function processCriticalAlertsBuffer(userId) {
     // Create notification body with basic alert info (no patient details for privacy)
     let notificationBody = "";
     if (buffer.alerts.length > 1) {
-      notificationBody = "Multiple critical vital signs detected:\n";
+      notificationBody += `**Multiple Critical Event Details:**\n`;
       buffer.alerts.forEach((alert) => {
         if (alert.vitalSign === "Heart Rate") {
           notificationBody += `• Heart Rate: ${alert.value} BPM\n`;
         } else if (alert.vitalSign === "Blood Pressure") {
           notificationBody += `• Blood Pressure: ${alert.details.systolic}/${alert.details.diastolic} mmHg\n`;
         } else if (alert.vitalSign === "SpO2") {
-          notificationBody += `• Blood Oxygen: ${alert.value}%\n`;
+          notificationBody += `• Blood Oxygen: ${alert.value}%\n\n`;
         }
       });
     } else {
+      notificationBody += `**Critical Event Details:**\n`;
       const alert = buffer.alerts[0];
       if (alert.vitalSign === "Heart Rate") {
-        notificationBody = `Critical heart rate detected: ${alert.value} BPM`;
+        notificationBody += `• Heart Rate: ${alert.value} BPM\n`;
       } else if (alert.vitalSign === "Blood Pressure") {
-        notificationBody = `Critical blood pressure detected: ${alert.details.systolic}/${alert.details.diastolic} mmHg`;
+        notificationBody += `• Blood Pressure: ${alert.details.systolic}/${alert.details.diastolic} mmHg\n`;
       } else if (alert.vitalSign === "SpO2") {
-        notificationBody = `Critical blood oxygen detected: ${alert.value}%`;
+        notificationBody += `• Blood Oxygen: ${alert.value}%\n\n`;
       }
     }
-    notificationBody += "\n\nImmediate medical attention may be required.";
 
     // Add AI-generated medical guidance to notification
     notificationBody += `\n\n${aiContent.body}`;
@@ -250,8 +250,13 @@ async function processCriticalAlertsBuffer(userId) {
 
       // Add critical event details
       emailBody += `**Critical Health Event Details:**\n`;
+
       buffer.alerts.forEach((alert, index) => {
-        emailBody += `\nAlert ${index + 1}: ${alert.vitalSign}\n`;
+        if (buffer.alerts.length > 1) {
+          emailBody += `\nAlert ${index + 1}: ${alert.vitalSign}\n`;
+        } else {
+          emailBody += `\nAlert: ${alert.vitalSign}\n`;
+        }
         if (alert.vitalSign === "Heart Rate") {
           emailBody += `• Current Reading: ${alert.value} BPM\n`;
           emailBody += `• Normal Range: ${user.normalHeartRate} BPM\n`;
@@ -280,7 +285,7 @@ async function processCriticalAlertsBuffer(userId) {
       }
 
       emailBody += `\n${aiContent.body}\n\n`;
-      emailBody += `---\nThis is an AI generated alert from AI Sensa Health Monitoring System.\nFor support, contact: support-aisensa@gmail.com\n\nAlert Generated: ${timestamp}`;
+      emailBody += `---\n<i>This is an AI generated alert from AI Sensa Health Monitoring System.</i>\n<i>For support, contact: support-aisensa@gmail.com</i>\n\n<i>Alert Generated: ${timestamp}</i>`;
 
       for (const email of caregiverEmails) {
         try {
@@ -340,7 +345,7 @@ async function sendEnhancedAlert(
       // Create structured email body for fall detection
       const timestamp = new Date().toLocaleString();
       let emailBody = `Dear Caregiver,\n\n`;
-      emailBody += `**Critical Event Details:**\n`;
+      emailBody += `**Emergency Event Details:**\n`;
       emailBody += `• Type: Fall\n`;
       emailBody += `• Severity: ${
         details.severity.charAt(0).toUpperCase() + details.severity.slice(1)
@@ -361,12 +366,12 @@ async function sendEnhancedAlert(
           .join(", ")}\n`;
       }
       emailBody += `\n${aiContent.body}\n\n`;
-      emailBody += `This is an AI generated alert from AI Sensa Health Monitoring System.\nFor support, contact: support-aisensa@gmail.com\n\nAlert Generated: ${timestamp}`;
+      emailBody += `---\n<i>This is an AI generated alert from AI Sensa Health Monitoring System.</i>\n<i>For support, contact: support-aisensa@gmail.com</i>\n\n<i>Alert Generated: ${timestamp}</i>`;
 
       // Add notification to database with AI generated content
       try {
         let notificationBody = "";
-        notificationBody += `**Critical Event Details:**\n`;
+        notificationBody += `**Emergency Event Details:**\n`;
         notificationBody += `• Type: Fall\n`;
         notificationBody += `• Severity: ${
           details.severity.charAt(0).toUpperCase() + details.severity.slice(1)

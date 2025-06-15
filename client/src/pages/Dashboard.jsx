@@ -30,10 +30,13 @@ import {
   ExternalLink,
   AlertTriangle,
   Heart,
-  Shield,
+  Siren,
   Eye,
   CheckCheck,
   MoreVertical,
+  Sparkles,
+  Brain,
+  Zap,
 } from "lucide-react";
 const vitalRangesConfig = {
   "heart-rate": {
@@ -96,7 +99,7 @@ const Dashboard = () => {
   const [error, setError] = useState(null);
   const [liveVitals, setLiveVitals] = useState({
     heartRate: 75,
-    bloodPressure: { systolic: 122, diastolic: 82 },
+    bloodPressure: { systolic: 120, diastolic: 80 },
     spO2: 97,
     fallDetected: false,
     fallSeverity: null,
@@ -104,6 +107,8 @@ const Dashboard = () => {
     lastFallTime: null,
     lastUpdated: new Date(),
   });
+
+  const [isAnalyzing, setIsAnalyzing] = useState(false);
 
   useEffect(() => {
     const fetchUserData = async () => {
@@ -321,28 +326,6 @@ const Dashboard = () => {
   }, [userData?.medications]);
 
   useEffect(() => {
-    const fetchNotifications = async () => {
-      if (!user?.id) return;
-
-      try {
-        const response = await fetch(
-          `${API_URL}/api/notifications/${user.id}`,
-          {
-            headers: {
-              "Content-Type": "application/json",
-            },
-          }
-        );
-
-        if (response.ok) {
-          const data = await response.json();
-          setNotifications(data.notifications || []);
-        }
-      } catch (error) {
-        console.error("Error fetching notifications:", error);
-      }
-    };
-
     // Initial fetch
     fetchNotifications();
 
@@ -362,6 +345,25 @@ const Dashboard = () => {
     return () => clearInterval(timer);
   }, []);
 
+  const fetchNotifications = async () => {
+    if (!user?.id) return;
+
+    try {
+      const response = await fetch(`${API_URL}/api/notifications/${user.id}`, {
+        headers: {
+          "Content-Type": "application/json",
+        },
+      });
+
+      if (response.ok) {
+        const data = await response.json();
+        setNotifications(data.notifications || []);
+      }
+    } catch (error) {
+      console.error("Error fetching notifications:", error);
+    }
+  };
+
   const formatNotificationBody = (body) => {
     if (!body) return "";
 
@@ -370,6 +372,26 @@ const Dashboard = () => {
 
     return lines.map((line, index) => {
       const trimmedLine = line.trim();
+
+      // Check if line is a header with # (new addition)
+      if (trimmedLine.startsWith("#")) {
+        const headerLevel = (trimmedLine.match(/^#+/) || [""])[0].length;
+        const headerText = trimmedLine.replace(/^#+\s*/, "").trim();
+
+        // Style based on header level
+        const headerClass =
+          headerLevel === 1
+            ? "font-bold text-gray-900 mt-6 mb-3 text-xl border-b-2 border-gray-200 pb-2"
+            : headerLevel === 2
+            ? "font-bold text-gray-900 mt-4 mb-2 text-lg border-b border-gray-200 pb-1"
+            : "font-semibold text-gray-800 mt-3 mb-1 text-base";
+
+        return (
+          <div key={index} className={headerClass}>
+            {headerText}
+          </div>
+        );
+      }
 
       // Check if line is a main header (enclosed in **)
       if (trimmedLine.startsWith("**") && !trimmedLine.startsWith("***")) {
@@ -410,13 +432,36 @@ const Dashboard = () => {
         // Remove bullet marker and get text
         let bulletText = trimmedLine.replace(/^[*•]\s*/, "").trim();
 
-        // Handle bold text within bullet points
-        if (bulletText.includes("**")) {
-          const parts = bulletText.split("**");
-          bulletText = parts.map((part, i) =>
-            i % 2 === 1 ? <strong key={i}>{part}</strong> : part
-          );
-        }
+        // Handle bold text within bullet points (modified to handle single *)
+        const formatText = (text) => {
+          if (!text.includes("*")) return text;
+
+          // Handle both single * and double ** for bold
+          let formattedText = text;
+
+          // First handle double asterisks (**)
+          if (formattedText.includes("**")) {
+            const parts = formattedText.split("**");
+            formattedText = parts
+              .map((part, i) => (i % 2 === 1 ? `<BOLD>${part}</BOLD>` : part))
+              .join("");
+          }
+
+          // Then handle single asterisks (*) that aren't part of **
+          if (formattedText.includes("*") && !formattedText.includes("**")) {
+            const parts = formattedText.split("*");
+            formattedText = parts
+              .map((part, i) => (i % 2 === 1 ? `<BOLD>${part}</BOLD>` : part))
+              .join("");
+          }
+
+          // Convert placeholder tags to JSX
+          return formattedText
+            .split(/<BOLD>|<\/BOLD>/)
+            .map((part, i) =>
+              i % 2 === 1 ? <strong key={i}>{part}</strong> : part
+            );
+        };
 
         return (
           <div
@@ -424,10 +469,11 @@ const Dashboard = () => {
             className={`${indentClass} text-sm text-gray-600 mb-1 flex items-start`}
           >
             <span className="text-blue-500 mr-2 mt-1">•</span>
-            <span>{bulletText}</span>
+            <span>{formatText(bulletText)}</span>
           </div>
         );
       }
+
       // Check if line contains ** but doesn't start with ** (inline bold formatting)
       if (trimmedLine.includes("**") && !trimmedLine.startsWith("**")) {
         const parts = trimmedLine.split("**");
@@ -445,13 +491,25 @@ const Dashboard = () => {
         );
       }
 
-      // Regular text - handle bold formatting
+      // Regular text - handle bold formatting (modified to handle single *)
       let formattedText = trimmedLine;
-      if (trimmedLine.includes("**")) {
-        const parts = trimmedLine.split("**");
-        formattedText = parts.map((part, i) =>
-          i % 2 === 1 ? <strong key={i}>{part}</strong> : part
-        );
+
+      // Handle single asterisk formatting for regular text
+      if (trimmedLine.includes("*")) {
+        // First handle double asterisks (**)
+        if (trimmedLine.includes("**")) {
+          const parts = trimmedLine.split("**");
+          formattedText = parts.map((part, i) =>
+            i % 2 === 1 ? <strong key={i}>{part}</strong> : part
+          );
+        }
+        // Then handle single asterisks (*) only if no double asterisks
+        else {
+          const parts = trimmedLine.split("*");
+          formattedText = parts.map((part, i) =>
+            i % 2 === 1 ? <strong key={i}>{part}</strong> : part
+          );
+        }
       }
 
       return (
@@ -462,14 +520,100 @@ const Dashboard = () => {
     });
   };
 
+  const handleAIAnalysis = async () => {
+    setIsAnalyzing(true);
+
+    try {
+      // Define endpoints for current vitals
+      const endpoints = [
+        `${API_URL}/api/heart-rate/${user.id}?limit=1`,
+        `${API_URL}/api/blood-pressure/${user.id}?limit=1`,
+        `${API_URL}/api/spo2/${user.id}?limit=1`,
+      ];
+
+      // Fetch current vitals data
+      const vitalsPromises = endpoints.map((endpoint) =>
+        fetch(endpoint, {
+          headers: {
+            "Content-Type": "application/json",
+          },
+        }).then((res) => res.json())
+      );
+
+      const [heartRateData, bloodPressureData, spo2Data] = await Promise.all(
+        vitalsPromises
+      );
+
+      // Extract current values based on your MongoDB models
+      const currentHeartRate = heartRateData?.[0]?.bpm || null;
+      const currentBP = bloodPressureData?.[0] || null;
+      const currentSpo2 = spo2Data?.[0]?.level || null;
+
+      // Prepare data for AI analysis matching your User model structure
+      const analysisData = {
+        // Personal info from userData (User model fields)
+        userId: user?.id,
+        age: userData.age,
+        gender: userData.gender,
+        height: userData.height,
+        weight: userData.weight,
+
+        // Normal baseline values from userData (User model fields)
+        normalHeartRate: userData.normalHeartRate,
+        normalBP: userData.normalBP,
+        normalSpo2: userData.normalSpO2,
+
+        // Current vital signs from API responses
+        currentHeartRate: currentHeartRate,
+        currentBP: currentBP
+          ? {
+              systolic: currentBP.systolic,
+              diastolic: currentBP.diastolic,
+            }
+          : null,
+        currentSpo2: currentSpo2,
+
+        // Health conditions and medications from userData (User model fields)
+        healthConditions: userData.healthConditions || [],
+        currentMedications:
+          userData.medications?.map((med) => ({
+            name: med.name,
+            dosage: med.dosage,
+          })) || [],
+      };
+
+      // Send data to AI analysis endpoint
+      const response = await fetch(`${API_URL}/api/ai/insight`, {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify(analysisData),
+      });
+
+      if (!response.ok) {
+        throw new Error(`Analysis request failed: ${response.statusText}`);
+      }
+    } catch (error) {
+      console.error("Error during AI analysis:", error);
+      // Handle error - maybe show a toast or alert
+      alert("Failed to generate AI analysis. Please try again.");
+    } finally {
+      fetchNotifications();
+      setIsAnalyzing(false);
+    }
+  };
+
   const getNotificationPreview = (body) => {
     if (!body) return "";
 
-    // Remove all formatting markers (**) and get clean text
+    // Remove all formatting markers and headers
     const cleanText = body
+      .replace(/^#+\s*/gm, "") // Remove # headers (## Header -> Header)
       .replace(/\*\*/g, "") // Remove all ** markers
       .replace(/\*/g, "") // Remove single * markers
       .replace(/\n/g, " ") // Replace line breaks with spaces
+      .replace(/\s+/g, " ") // Replace multiple spaces with single space
       .trim();
 
     // Return truncated version
@@ -489,7 +633,7 @@ const Dashboard = () => {
       case "appointment_reminder":
         return <Calendar className="w-4 h-4 text-purple-500" />;
       case "emergency_alert":
-        return <Shield className="w-4 h-4 text-red-600" />;
+        return <Siren className="w-4 h-4 text-red-600" />;
       default:
         return <Bell className="w-4 h-4 text-blue-500" />;
     }
@@ -614,6 +758,39 @@ const Dashboard = () => {
     } else {
       return { status: "Normal", color: "text-green-600", bg: "bg-green-50" };
     }
+  };
+
+  const getIndividualBloodPressureStatus = (systolic, diastolic) => {
+    const config = vitalRangesConfig["blood-pressure"];
+
+    // Helper function to get status for a single value
+    const getValueStatus = (value, range, type) => {
+      if (!value || value === 0) {
+        return { status: "No Data", color: "text-gray-500" };
+      }
+
+      if (value < range.min) {
+        return { status: "Low", color: "text-blue-600" };
+      } else if (value > range.max) {
+        return { status: "High", color: "text-red-600" };
+      } else {
+        return { status: "Normal", color: "text-green-600" };
+      }
+    };
+
+    const systolicStatus = getValueStatus(
+      systolic,
+      config.normalRange.systolic,
+      "systolic"
+    );
+
+    const diastolicStatus = getValueStatus(
+      diastolic,
+      config.normalRange.diastolic,
+      "diastolic"
+    );
+
+    return { systolicStatus, diastolicStatus };
   };
 
   const getBloodPressureStatus = (systolic, diastolic) => {
@@ -1050,11 +1227,37 @@ const Dashboard = () => {
                 })}
               </p>
             </div>
-            <div className="text-right">
-              <div className="text-2xl font-mono text-gray-800">
-                {currentTime.toLocaleTimeString()}
-              </div>
-              <div className="text-sm text-gray-500">Live Time</div>
+            <div className="flex items-center">
+              <button
+                onClick={handleAIAnalysis}
+                disabled={isAnalyzing}
+                className="group relative px-6 py-3 bg-gradient-to-r from-purple-500 via-blue-500 to-cyan-500 text-white font-semibold rounded-xl shadow-lg hover:shadow-xl transform hover:scale-105 transition-all duration-300 ease-in-out overflow-hidden disabled:opacity-70 disabled:cursor-not-allowed disabled:transform-none"
+              >
+                {/* Animated background overlay */}
+                <div className="absolute inset-0 bg-gradient-to-r from-purple-600 via-blue-600 to-cyan-600 opacity-0 group-hover:opacity-100 transition-opacity duration-300"></div>
+
+                {/* Shimmer effect */}
+                <div className="absolute inset-0 bg-gradient-to-r from-transparent via-white/20 to-transparent -skew-x-12 group-hover:animate-pulse"></div>
+
+                {/* Button content */}
+                <div className="relative flex items-center space-x-2">
+                  {isAnalyzing ? (
+                    <>
+                      <div className="w-5 h-5 border-2 border-white border-t-transparent rounded-full animate-spin"></div>
+                      <span className="text-sm font-medium">Analyzing...</span>
+                    </>
+                  ) : (
+                    <>
+                      <Brain className="w-5 h-5 group-hover:rotate-12 transition-transform duration-300" />
+                      <span className="text-sm font-medium">AI Insights</span>
+                      <Sparkles className="w-4 h-4 group-hover:animate-bounce" />
+                    </>
+                  )}
+                </div>
+
+                {/* Glow effect */}
+                <div className="absolute -inset-1 bg-gradient-to-r from-purple-500 via-blue-500 to-cyan-500 rounded-xl blur opacity-25 group-hover:opacity-50 transition-opacity duration-300 -z-10"></div>
+              </button>
             </div>
           </div>
         </div>
@@ -1112,14 +1315,22 @@ const Dashboard = () => {
 
               {/* Blood Pressure Card */}
               {(() => {
-                const bloodPressureStatus = getBloodPressureStatus(
+                const { systolicStatus, diastolicStatus } =
+                  getIndividualBloodPressureStatus(
+                    liveVitals.bloodPressure.systolic,
+                    liveVitals.bloodPressure.diastolic
+                  );
+
+                // Overall status for background color (you can keep this for the card background)
+                const overallStatus = getBloodPressureStatus(
                   liveVitals.bloodPressure.systolic,
                   liveVitals.bloodPressure.diastolic
                 );
+
                 return (
                   <div
                     onClick={() => openVitalTracking("blood-pressure")}
-                    className={`p-4 rounded-lg ${bloodPressureStatus.bg} border relative group cursor-pointer transform transition-all duration-300 ease-in-out hover:scale-105 hover:shadow-xl hover:-translate-y-2 hover:border-green-300`}
+                    className={`p-4 rounded-lg ${overallStatus.bg} border relative group cursor-pointer transform transition-all duration-300 ease-in-out hover:scale-105 hover:shadow-xl hover:-translate-y-2 hover:border-green-300`}
                   >
                     <button
                       className="cursor-pointer absolute top-2 right-2 opacity-0 group-hover:opacity-100 transition-opacity p-1 bg-white rounded-full shadow-md hover:bg-gray-50"
@@ -1133,15 +1344,38 @@ const Dashboard = () => {
                         Blood Pressure
                       </span>
                     </div>
-                    <div className="text-2xl font-bold text-gray-900 transition-all duration-300 group-hover:text-green-700 group-hover:scale-110">
-                      {liveVitals.bloodPressure.systolic || 0}/
-                      {liveVitals.bloodPressure.diastolic || 0}
+
+                    {/* Individual status display */}
+                    <div className="flex items-center gap-1 mb-2">
+                      <div className="text-2xl font-bold text-gray-900 transition-all duration-300 group-hover:text-green-700 group-hover:scale-110">
+                        <span className={systolicStatus.color}>
+                          {liveVitals.bloodPressure.systolic || 0}
+                        </span>
+                        <span className="text-gray-500">/</span>
+                        <span className={diastolicStatus.color}>
+                          {liveVitals.bloodPressure.diastolic || 0}
+                        </span>
+                      </div>
                     </div>
-                    <div className="text-xs text-gray-500">mmHg</div>
-                    <div
-                      className={`text-xs mt-1 ${bloodPressureStatus.color} font-medium`}
-                    >
-                      {bloodPressureStatus.status}
+
+                    <div className="text-xs text-gray-500 mb-2">mmHg</div>
+
+                    {/* Individual status labels */}
+                    <div className="flex flex-col gap-1 text-xs">
+                      <div className="flex justify-between">
+                        <span className="text-gray-600">Systolic:</span>
+                        <span className={`${systolicStatus.color} font-medium`}>
+                          {systolicStatus.status}
+                        </span>
+                      </div>
+                      <div className="flex justify-between">
+                        <span className="text-gray-600">Diastolic:</span>
+                        <span
+                          className={`${diastolicStatus.color} font-medium`}
+                        >
+                          {diastolicStatus.status}
+                        </span>
+                      </div>
                     </div>
                   </div>
                 );
@@ -1454,7 +1688,7 @@ const Dashboard = () => {
           {/* Notification Details Modal */}
           {showNotificationModal && selectedNotification && (
             <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50 p-4">
-              <div className="bg-white rounded-xl max-w-md w-full max-h-[80vh] overflow-y-auto">
+              <div className="bg-white rounded-xl max-w-md sm:max-w-lg md:max-w-2xl lg:max-w-4xl w-full max-h-[80vh] overflow-y-auto">
                 <div
                   className={`p-6 border-l-4 ${
                     getNotificationColor(selectedNotification.type).split(
@@ -1493,16 +1727,13 @@ const Dashboard = () => {
 
                   <div className="space-y-4">
                     <div>
-                      <h4 className="text-sm font-medium text-gray-700 mb-2">
-                        Details
-                      </h4>
-                      <div className="text-gray-600 leading-relaxed">
+                      <div className="text-gray-600 leading-relaxed text-sm sm:text-base max-w-none">
                         {formatNotificationBody(selectedNotification.body)}
                       </div>
                     </div>
 
                     <div className="border-t pt-4">
-                      <div className="flex items-center justify-between text-xs text-gray-500">
+                      <div className="flex items-center justify-between text-xs sm:text-sm text-gray-500">
                         <span>
                           Type:{" "}
                           {selectedNotification.type

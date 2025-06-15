@@ -22,6 +22,7 @@ import {
   Droplets,
   PersonStanding,
   Clock,
+  Download,
 } from "lucide-react";
 
 function ViewData() {
@@ -136,6 +137,84 @@ function ViewData() {
       }
     };
   }, [isSimulationActive, timeFilter, isAutoUpdatePaused, dataType, user?.id]);
+
+  function convertToCSV(data) {
+    if (!data || data.length === 0) return "";
+
+    // Define headers based on data type
+    let headers = ["timestamp"];
+    let rows = [];
+
+    if (dataType === "blood-pressure") {
+      headers = [...headers, "systolic", "diastolic"];
+      rows = data.map((item) => [
+        item.timestamp,
+        item.systolic,
+        item.diastolic,
+      ]);
+    } else if (dataType === "fall-detection") {
+      headers = [...headers, "severity", "location"];
+      rows = data.map((item) => [
+        item.timestamp,
+        item.severity,
+        item.location || "Unknown",
+      ]);
+    } else {
+      // For heart-rate and spo2
+      const dataKey = config.dataKey;
+      headers = [...headers, dataKey];
+      rows = data.map((item) => [item.timestamp, item[dataKey]]);
+    }
+
+    // Create CSV content
+    const csvContent = [
+      headers.join(","),
+      ...rows.map((row) =>
+        row
+          .map((cell) =>
+            typeof cell === "string" && cell.includes(",") ? `"${cell}"` : cell
+          )
+          .join(",")
+      ),
+    ].join("\n");
+
+    return csvContent;
+  }
+
+  // Add this function after convertToCSV
+  function downloadCSV() {
+    if (!data || data.length === 0) {
+      alert("No data available to download");
+      return;
+    }
+
+    const csvContent = convertToCSV(data);
+    const blob = new Blob([csvContent], { type: "text/csv;charset=utf-8;" });
+    const link = document.createElement("a");
+
+    // Create filename with timestamp and time range
+    const now = new Date();
+    const timestamp = now.toISOString().slice(0, 19).replace(/:/g, "-");
+    const timeRangeText =
+      timeFilter === "custom"
+        ? `${customStartTime.replace(/:/g, "-")}_to_${customEndTime.replace(
+            /:/g,
+            "-"
+          )}`
+        : timeFilter;
+
+    const filename = `${dataType}_data_${timeRangeText}_${timestamp}.csv`;
+
+    if (link.download !== undefined) {
+      const url = URL.createObjectURL(blob);
+      link.setAttribute("href", url);
+      link.setAttribute("download", filename);
+      link.style.visibility = "hidden";
+      document.body.appendChild(link);
+      link.click();
+      document.body.removeChild(link);
+    }
+  }
 
   async function checkSimulationStatus() {
     try {
@@ -396,9 +475,26 @@ function ViewData() {
     return (
       <div className="mb-6">
         <div className="bg-white rounded-lg shadow-md p-4">
-          <div className="flex items-center mb-2">
-            <Clock size={18} className="mr-2 text-gray-600" />
-            <h3 className="font-medium">Time Range</h3>
+          <div className="flex items-center justify-between mb-2">
+            <div className="flex items-center">
+              <Clock size={18} className="mr-2 text-gray-600" />
+              <h3 className="font-medium">Time Range</h3>
+            </div>
+
+            {/* Download CSV Button */}
+            <button
+              onClick={downloadCSV}
+              disabled={!data || data.length === 0}
+              className={`flex items-center px-3 py-1 rounded text-sm ${
+                !data || data.length === 0
+                  ? "bg-gray-100 text-gray-400 cursor-not-allowed"
+                  : "bg-green-500 hover:bg-green-600 text-white cursor-pointer"
+              }`}
+              title={`Download ${config.title} data as CSV`}
+            >
+              <Download size={14} className="mr-1" />
+              Download CSV
+            </button>
           </div>
 
           <div className="flex flex-wrap gap-2">
